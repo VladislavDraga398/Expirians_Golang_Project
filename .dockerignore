@@ -1,0 +1,22 @@
+# VCS
+.git
+.github
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+
+# Build artifacts
+/bin/
+/dist/
+/build/
+coverage.out
+coverage.html
+
+# Go cache (not strictly needed, but keeps context smaller)
+**/*~

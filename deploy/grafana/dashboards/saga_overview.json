@@ -1,0 +1,86 @@
+{
+  "id": null,
+  "uid": "saga-overview",
+  "title": "OMS Saga Overview",
+  "tags": ["oms", "saga"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Sagas",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{
+        "expr": "oms_active_sagas",
+        "legendFormat": "active_sagas",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Saga Started/s",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{
+        "expr": "rate(oms_saga_started_total[1m])",
+        "legendFormat": "started/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Saga Failed/s",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{
+        "expr": "rate(oms_saga_failed_total[1m])",
+        "legendFormat": "failed/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "stat",
+      "title": "Saga Completed/s",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{
+        "expr": "rate(oms_saga_completed_total[1m])",
+        "legendFormat": "completed/s",
+        "refId": "A"
+      }]
+    },
+    {
+      "type": "graph",
+      "title": "Saga Duration (avg)",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(oms_saga_duration_seconds_sum[5m]) / rate(oms_saga_duration_seconds_count[5m])", "legendFormat": "avg", "refId": "A"}
+      ],
+      "lines": true
+    },
+    {
+      "type": "graph",
+      "title": "Step Duration (p50/p90/p99)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "histogram_quantile(0.5, sum(rate(oms_saga_step_duration_seconds_bucket[5m])) by (le, step))", "legendFormat": "p50 {{step}}", "refId": "A"},
+        {"expr": "histogram_quantile(0.9, sum(rate(oms_saga_step_duration_seconds_bucket[5m])) by (le, step))", "legendFormat": "p90 {{step}}", "refId": "B"},
+        {"expr": "histogram_quantile(0.99, sum(rate(oms_saga_step_duration_seconds_bucket[5m])) by (le, step))", "legendFormat": "p99 {{step}}", "refId": "C"}
+      ],
+      "lines": true
+    },
+    {
+      "type": "graph",
+      "title": "Timeline / Outbox Events",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(oms_timeline_events_total[1m])", "legendFormat": "timeline/s", "refId": "A"},
+        {"expr": "rate(oms_outbox_events_total[1m])", "legendFormat": "outbox/s", "refId": "B"}
+      ],
+      "lines": true
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          cache: true
+
+      - name: Go fmt check
+        run: |
+          fmt_out=$(gofmt -l .)
+          if [ -n "$fmt_out" ]; then
+            echo "Files need gofmt:" && echo "$fmt_out"
+            exit 1
+          fi
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.59.1
+          args: --timeout=5m
+
+      - name: Run tests
+        run: go test ./... -race -count=1
+
+      - name: Build binary
+        run: |
+          VERSION=${{ github.sha }}
+          COMMIT=${{ github.sha }}
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-s -w -X github.com/vladislavdragonenkov/oms/internal/version.version=$VERSION -X github.com/vladislavdragonenkov/oms/internal/version.commit=$COMMIT -X github.com/vladislavdragonenkov/oms/internal/version.date=$DATE"
+          go build -ldflags "$LDFLAGS" -o bin/order-service ./cmd/order-service
+
+      # - name: Build Docker image (optional)
+      #   uses: docker/build-push-action@v5
+      #   with:
+      #     context: .
+      #     push: false
+      #     build-args: |
+      #       VERSION=${{ github.sha }}
+      #       COMMIT=${{ github.sha }}
+      #       DATE=${{ github.event.head_commit.timestamp }}

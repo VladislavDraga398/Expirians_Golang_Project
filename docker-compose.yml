@@ -1,0 +1,75 @@
+services:
+  oms:
+    container_name: oms
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      - OMS_GRPC_ADDR=${OMS_GRPC_ADDR}
+      - OMS_METRICS_ADDR=${OMS_METRICS_ADDR}
+      - OMS_FAIL_RESERVE=${OMS_FAIL_RESERVE:-false}
+      - OMS_FAIL_PAY=${OMS_FAIL_PAY:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${OMS_GRPC_PORT}:${OMS_GRPC_PORT}"
+      - "${OMS_METRICS_PORT}:${OMS_METRICS_PORT}"
+    restart: unless-stopped
+    networks:
+      - monitoring
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+        reservations:
+          cpus: "0.10"
+          memory: 64M
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "${PROM_UI_PORT}:9090"  # Prometheus UI
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - oms
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "${GRAFANA_UI_PORT}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      prometheus:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  monitoring:
+    driver: bridge

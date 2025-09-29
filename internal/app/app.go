@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -37,7 +38,6 @@ func DefaultConfig() Config {
 	}
 }
 
-// Run инициализирует зависимости и запускает gRPC сервер OrderService.
 func Run(ctx context.Context, cfg Config) error {
 	logger := log.WithField("component", "app")
 	repo := memory.NewOrderRepository()
@@ -45,27 +45,46 @@ func Run(ctx context.Context, cfg Config) error {
 	timelineRepo := memory.NewTimelineRepository()
 	inventorySvc := inventory.NewMockService()
 	paymentSvc := payment.NewMockService()
+	// Allow forcing failures for testing metrics via env flags
+	failReserve := os.Getenv("OMS_FAIL_RESERVE")
+	failPay := os.Getenv("OMS_FAIL_PAY")
+	logger.Errorf("DEBUG: Failure flags: OMS_FAIL_RESERVE=%s, OMS_FAIL_PAY=%s", failReserve, failPay)
+	
+	if failReserve == "true" {
+		inventorySvc.ReserveErr = errors.New("forced reserve fail")
+		logger.Error("TESTING: Reserve failures enabled")
+	}
+	if failPay == "true" {
+		paymentSvc.PayErr = errors.New("forced pay fail")
+		logger.Error("TESTING: Payment failures enabled")
+	}
 	sagaOrchestrator := saga.NewOrchestrator(
 		repo,
 		outboxRepo,
 		timelineRepo,
 		inventorySvc,
 		paymentSvc,
-		logger.WithField("layer", "saga"),
+		logger,
 	)
 
 	serviceLogger := logger.WithField("layer", "grpc")
 	orderService := grpcsvc.NewOrderService(repo, timelineRepo, sagaOrchestrator, serviceLogger)
-
 	grpcMetrics := promgrpc.NewServerMetrics()
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))
-	prometheus.MustRegister(grpcMetrics)
+	if err := prometheus.Register(grpcMetrics); err != nil {
+		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			if existing, ok2 := are.ExistingCollector.(*promgrpc.ServerMetrics); ok2 {
+				grpcMetrics = existing
+			}
+		} else {
+			logger.WithError(err).Warn("failed to register grpc metrics")
+		}
+	}
 
 omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 	grpcMetrics.InitializeMetrics(grpcServer)
 
 	healthServer := health.NewServer()
-	healthpb.RegisterHealthServer(grpcServer, healthServer)
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	metricsSrv := startMetricsServer(ctx, cfg.MetricsAddr, logger)
@@ -109,14 +128,18 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 
 // startMetricsServer запускает HTTP-обработчик /metrics для Prometheus.
 func startMetricsServer(ctx context.Context, addr string, logger *log.Entry) *http.Server {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
+    mux := http.NewServeMux()
+    mux.Handle("/metrics", promhttp.Handler())
+    mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("ok"))
+    })
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
 		logger.Infof("метрики доступны по адресу %s/metrics", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.WithError(err).Error("metrics server failed")
+			logger.WithError(err).Warn("metrics server failed")
 		}
 	}()
 

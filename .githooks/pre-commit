@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+# Run gofmt check
+UNFORMATTED=$(gofmt -l . | grep -E "\.go$" || true)
+if [[ -n "$UNFORMATTED" ]]; then
+  echo -e "${RED}Файлы не отформатированы gofmt:${NC}"
+  echo "$UNFORMATTED"
+  echo -e "${RED}Выполните: go fmt ./...${NC}"
+  exit 1
+fi
+
+echo -e "${GREEN}gofmt OK${NC}"
+
+# Run go vet
+if command -v go >/dev/null 2>&1; then
+  echo "Запуск go vet..."
+  go vet ./...
+  echo -e "${GREEN}go vet OK${NC}"
+fi
+
+# Run golangci-lint if available
+if command -v golangci-lint >/dev/null 2>&1; then
+  echo "Запуск golangci-lint..."
+  golangci-lint run
+  echo -e "${GREEN}golangci-lint OK${NC}"
+else
+  echo -e "${RED}golangci-lint не установлен. Пропускаем lint. Установите через: make lint-install${NC}"
+fi
