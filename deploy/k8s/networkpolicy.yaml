@@ -1,0 +1,64 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: oms
+  namespace: oms
+  labels:
+    app: oms
+spec:
+  podSelector:
+    matchLabels:
+      app: oms
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  # Разрешить gRPC трафик от других сервисов
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: oms
+    - namespaceSelector:
+        matchLabels:
+          name: api-gateway
+    ports:
+    - protocol: TCP
+      port: 50051
+  
+  # Разрешить метрики для Prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 9090
+  
+  egress:
+  # Разрешить DNS
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Разрешить Kafka
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kafka
+    ports:
+    - protocol: TCP
+      port: 9092
+  
+  # Разрешить внешние API (если нужно)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80

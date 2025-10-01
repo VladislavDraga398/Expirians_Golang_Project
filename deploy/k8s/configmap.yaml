@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oms-config
+  namespace: oms
+  labels:
+    app: oms
+    component: config
+data:
+  # gRPC Configuration
+  OMS_GRPC_ADDR: ":50051"
+  
+  # Metrics Configuration
+  OMS_METRICS_ADDR: ":9090"
+  
+  # Logging Configuration
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  
+  # Kafka Configuration
+  KAFKA_BROKERS: "kafka-headless.kafka.svc.cluster.local:9092"
+  KAFKA_TOPIC_SAGA: "oms.saga.events"
+  KAFKA_TOPIC_ORDER: "oms.order.events"
+  KAFKA_TOPIC_DLQ: "oms.dlq"
+  
+  # Application Configuration
+  APP_NAME: "order-service"
+  APP_ENVIRONMENT: "production"

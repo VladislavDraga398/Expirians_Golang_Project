@@ -17,7 +17,9 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	healthcheck "github.com/vladislavdragonenkov/oms/internal/health"
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
+	"github.com/vladislavdragonenkov/oms/internal/version"
 	grpcsvc "github.com/vladislavdragonenkov/oms/internal/service/grpc"
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
@@ -109,7 +111,14 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
-	metricsSrv := startMetricsServer(ctx, cfg.MetricsAddr, logger)
+	// HTTP Health checks
+	healthHandler := healthcheck.NewHandler(version.GetVersion())
+	// Можно добавить проверки компонентов:
+	// healthHandler.RegisterChecker("storage", healthcheck.NewSimpleChecker("storage", func() error {
+	//     return nil // проверка storage
+	// }))
+
+	metricsSrv := startMetricsServer(ctx, cfg.MetricsAddr, logger, healthHandler)
 
 	lis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
@@ -167,10 +176,11 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 }
 
 // startMetricsServer запускает HTTP-обработчик /metrics для Prometheus.
-func startMetricsServer(ctx context.Context, addr string, logger *log.Entry) *http.Server {
+func startMetricsServer(ctx context.Context, addr string, logger *log.Entry, healthHandler http.Handler) *http.Server {
     mux := http.NewServeMux()
     mux.Handle("/metrics", promhttp.Handler())
-    mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+    mux.Handle("/healthz", healthHandler)
+    mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
         _, _ = w.Write([]byte("ok"))
     })
@@ -178,6 +188,7 @@ func startMetricsServer(ctx context.Context, addr string, logger *log.Entry) *ht
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
 		logger.Infof("метрики доступны по адресу %s/metrics", addr)
+		logger.Infof("health checks: %s/healthz, %s/livez", addr, addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.WithError(err).Warn("metrics server failed")
 		}

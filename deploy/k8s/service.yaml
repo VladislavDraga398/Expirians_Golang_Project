@@ -1,0 +1,68 @@
+---
+# ClusterIP Service для внутреннего доступа
+apiVersion: v1
+kind: Service
+metadata:
+  name: oms
+  namespace: oms
+  labels:
+    app: oms
+spec:
+  type: ClusterIP
+  selector:
+    app: oms
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: grpc
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: metrics
+    protocol: TCP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+
+---
+# Headless Service для StatefulSet (если потребуется)
+apiVersion: v1
+kind: Service
+metadata:
+  name: oms-headless
+  namespace: oms
+  labels:
+    app: oms
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: oms
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: grpc
+    protocol: TCP
+
+---
+# LoadBalancer Service для внешнего доступа (опционально)
+apiVersion: v1
+kind: Service
+metadata:
+  name: oms-external
+  namespace: oms
+  labels:
+    app: oms
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # Для AWS
+    # cloud.google.com/load-balancer-type: "Internal"  # Для GCP
+spec:
+  type: LoadBalancer
+  selector:
+    app: oms
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: grpc
+    protocol: TCP

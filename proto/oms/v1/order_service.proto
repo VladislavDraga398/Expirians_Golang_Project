@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package oms.v1;
 
+import "google/api/annotations.proto";
+
 option go_package = "github.com/vladislavdragonenkov/oms/proto/oms/v1;omsv1";
 
 // ---
@@ -113,15 +115,48 @@ message RefundOrderResponse {
 // ---- gRPC сервис ----
 service OrderService {
   // Создание заказа, запуск первичной саги.
-  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse);
+  rpc CreateOrder(CreateOrderRequest) returns (CreateOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders"
+      body: "*"
+    };
+  }
+  
   // Получение статуса и деталей заказа.
-  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse) {
+    option (google.api.http) = {
+      get: "/v1/orders/{order_id}"
+    };
+  }
+  
   // Список заказов с пагинацией и фильтром по статусам.
-  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse) {
+    option (google.api.http) = {
+      get: "/v1/orders"
+    };
+  }
+  
   // Запуск платежа (асинхронный результат).
-  rpc PayOrder(PayOrderRequest) returns (PayOrderResponse);
+  rpc PayOrder(PayOrderRequest) returns (PayOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{order_id}/pay"
+      body: "*"
+    };
+  }
+  
   // Отмена заказа и запуск компенсаций.
-  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{order_id}/cancel"
+      body: "*"
+    };
+  }
+  
   // Инициировать возврат средств.
-  rpc RefundOrder(RefundOrderRequest) returns (RefundOrderResponse);
+  rpc RefundOrder(RefundOrderRequest) returns (RefundOrderResponse) {
+    option (google.api.http) = {
+      post: "/v1/orders/{order_id}/refund"
+      body: "*"
+    };
+  }
 }

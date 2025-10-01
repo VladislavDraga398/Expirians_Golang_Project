@@ -363,23 +363,63 @@ func (o *orchestrator) releaseInventory(order *domain.Order) {
 }
 
 // updateStatus меняет статус заказа и эмитит событие в timeline через emitStatusEvent.
+// Реализует retry логику с exponential backoff для обработки version conflicts.
 func (o *orchestrator) updateStatus(order *domain.Order, newStatus domain.OrderStatus) error {
     if order.Status == newStatus {
         return nil
     }
-    previousStatus := order.Status
-    order.Status = newStatus
-    order.UpdatedAt = time.Now().UTC()
-    prevVersion := order.Version
+    
+    const maxRetries = 3
+    const baseDelay = 10 * time.Millisecond
+    
+    for attempt := 0; attempt < maxRetries; attempt++ {
+        previousStatus := order.Status
+        order.Status = newStatus
+        order.UpdatedAt = time.Now().UTC()
+        prevVersion := order.Version
 
-    if err := o.orders.Save(*order); err != nil {
-        order.Status = previousStatus
-        o.logger.WithError(err).WithField("order_id", order.ID).Error("failed to persist status")
-        return err
+        if err := o.orders.Save(*order); err != nil {
+            // Проверяем, является ли ошибка version conflict
+            if domain.IsVersionConflict(err) && attempt < maxRetries-1 {
+                o.logger.WithFields(log.Fields{
+                    "order_id": order.ID,
+                    "attempt":  attempt + 1,
+                    "version":  order.Version,
+                }).Warn("version conflict detected, retrying")
+                
+                // Перезагружаем свежую версию заказа
+                fresh, loadErr := o.orders.Get(order.ID)
+                if loadErr != nil {
+                    o.logger.WithError(loadErr).WithField("order_id", order.ID).Error("failed to reload order after conflict")
+                    return loadErr
+                }
+                
+                // Обновляем order с новыми данными
+                *order = fresh
+                
+                // Exponential backoff
+                delay := baseDelay * time.Duration(1<<uint(attempt))
+                time.Sleep(delay)
+                continue
+            }
+            
+            // Если это не version conflict или исчерпаны попытки
+            order.Status = previousStatus
+            o.logger.WithError(err).WithFields(log.Fields{
+                "order_id": order.ID,
+                "attempt":  attempt + 1,
+            }).Error("failed to persist status")
+            return err
+        }
+        
+        // Успешно сохранили
+        order.Version = prevVersion + 1
+        o.emitStatusEvent(order)
+        return nil
     }
-    order.Version = prevVersion + 1
-    o.emitStatusEvent(order)
-    return nil
+    
+    // Если дошли сюда - все попытки исчерпаны
+    return domain.ErrOrderVersionConflict
 }
 
 func (o *orchestrator) emitStatusEvent(order *domain.Order) {

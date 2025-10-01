@@ -1,0 +1,41 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oms
+  namespace: oms
+  labels:
+    app: oms
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oms
+  namespace: oms
+  labels:
+    app: oms
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oms
+  namespace: oms
+  labels:
+    app: oms
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: oms
+subjects:
+- kind: ServiceAccount
+  name: oms
+  namespace: oms

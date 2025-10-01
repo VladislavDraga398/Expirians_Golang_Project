@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oms.fullname" . }}
+  labels:
+    {{- include "oms.labels" . | nindent 4 }}
+data:
+  OMS_GRPC_ADDR: {{ .Values.config.grpcAddr | quote }}
+  OMS_METRICS_ADDR: {{ .Values.config.metricsAddr | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  LOG_FORMAT: {{ .Values.config.logFormat | quote }}
+  KAFKA_BROKERS: {{ .Values.config.kafka.brokers | quote }}
+  KAFKA_TOPIC_SAGA: {{ .Values.config.kafka.topicSaga | quote }}
+  KAFKA_TOPIC_ORDER: {{ .Values.config.kafka.topicOrder | quote }}
+  KAFKA_TOPIC_DLQ: {{ .Values.config.kafka.topicDLQ | quote }}
+  APP_NAME: {{ include "oms.name" . | quote }}
+  APP_ENVIRONMENT: {{ .Release.Namespace | quote }}

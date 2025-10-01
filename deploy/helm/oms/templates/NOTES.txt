@@ -1,0 +1,49 @@
+🎉 OMS has been deployed!
+
+📊 Release Information:
+  Name:      {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Revision:  {{ .Release.Revision }}
+
+🚀 Application Status:
+  {{- if .Values.autoscaling.enabled }}
+  Replicas:  {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} (autoscaling enabled)
+  {{- else }}
+  Replicas:  {{ .Values.replicaCount }}
+  {{- end }}
+  Image:     {{ include "oms.image" . }}
+
+📡 Service Endpoints:
+  gRPC:      {{ include "oms.fullname" . }}:{{ .Values.service.grpcPort }}
+  Metrics:   {{ include "oms.fullname" . }}:{{ .Values.service.metricsPort }}
+
+🔍 Useful Commands:
+
+  # Check pod status
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "oms.name" . }}
+
+  # View logs
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "oms.name" . }} -f
+
+  # Check service
+  kubectl get svc -n {{ .Release.Namespace }} {{ include "oms.fullname" . }}
+
+  {{- if .Values.autoscaling.enabled }}
+  # Check HPA status
+  kubectl get hpa -n {{ .Release.Namespace }} {{ include "oms.fullname" . }}
+  {{- end }}
+
+  # Port forward for local testing
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "oms.fullname" . }} {{ .Values.service.grpcPort }}:{{ .Values.service.grpcPort }}
+
+📚 Documentation:
+  https://github.com/vladislavdragonenkov/oms
+
+💡 Tips:
+  - Metrics are available at http://localhost:{{ .Values.service.metricsPort }}/metrics
+  - Health check at http://localhost:{{ .Values.service.metricsPort }}/healthz
+  {{- if .Values.monitoring.enabled }}
+  - Prometheus scraping is enabled
+  {{- end }}
+
+Happy ordering! 🛒

@@ -44,3 +44,8 @@ var (
 	// ErrOutboxPublish — ошибка при публикации сообщения из outbox.
 	ErrOutboxPublish = errors.New("outbox publish failed")
 )
+
+// IsVersionConflict проверяет, является ли ошибка конфликтом версий.
+func IsVersionConflict(err error) bool {
+	return errors.Is(err, ErrOrderVersionConflict)
+}

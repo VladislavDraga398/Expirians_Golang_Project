@@ -1,0 +1,28 @@
+apiVersion: v2
+name: oms
+description: Order Management System - Production-ready Helm Chart
+type: application
+version: 1.0.0
+appVersion: "2.0.0"
+
+keywords:
+  - oms
+  - order-management
+  - microservices
+  - saga
+  - kafka
+  - grpc
+
+maintainers:
+  - name: Vladislav Dragonenkov
+    email: vladislav@example.com
+
+home: https://github.com/vladislavdragonenkov/oms
+sources:
+  - https://github.com/vladislavdragonenkov/oms
+
+icon: https://raw.githubusercontent.com/vladislavdragonenkov/oms/main/docs/logo.png
+
+annotations:
+  category: Microservices
+  licenses: MIT

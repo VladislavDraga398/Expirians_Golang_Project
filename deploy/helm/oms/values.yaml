@@ -1,0 +1,270 @@
+# Default values for oms
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# ========================================================================
+# Image Configuration
+# ========================================================================
+image:
+  repository: order-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ========================================================================
+# Deployment Configuration
+# ========================================================================
+replicaCount: 3
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# ========================================================================
+# Service Configuration
+# ========================================================================
+service:
+  type: ClusterIP
+  grpcPort: 50051
+  metricsPort: 9090
+  annotations: {}
+  sessionAffinity: ClientIP
+
+# External LoadBalancer (optional)
+externalService:
+  enabled: false
+  type: LoadBalancer
+  annotations: {}
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+# ========================================================================
+# Application Configuration
+# ========================================================================
+config:
+  grpcAddr: ":50051"
+  metricsAddr: ":9090"
+  logLevel: "info"
+  logFormat: "json"
+  
+  kafka:
+    brokers: "kafka-headless.kafka.svc.cluster.local:9092"
+    topicSaga: "oms.saga.events"
+    topicOrder: "oms.order.events"
+    topicDLQ: "oms.dlq"
+
+# ========================================================================
+# Resources
+# ========================================================================
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# ========================================================================
+# Autoscaling
+# ========================================================================
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 4
+        periodSeconds: 30
+
+# ========================================================================
+# Health Probes
+# ========================================================================
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: metrics
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: metrics
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: metrics
+  initialDelaySeconds: 0
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 12
+
+# ========================================================================
+# Security
+# ========================================================================
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+    - ALL
+
+# ========================================================================
+# ServiceAccount
+# ========================================================================
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ========================================================================
+# RBAC
+# ========================================================================
+rbac:
+  create: true
+
+# ========================================================================
+# Pod Disruption Budget
+# ========================================================================
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+# ========================================================================
+# Network Policy
+# ========================================================================
+networkPolicy:
+  enabled: true
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: oms
+      - namespaceSelector:
+          matchLabels:
+            name: api-gateway
+      ports:
+      - protocol: TCP
+        port: 50051
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+      ports:
+      - protocol: TCP
+        port: 9090
+  egress:
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: kube-system
+      ports:
+      - protocol: UDP
+        port: 53
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: kafka
+      ports:
+      - protocol: TCP
+        port: 9092
+
+# ========================================================================
+# Affinity and Tolerations
+# ========================================================================
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - oms
+        topologyKey: kubernetes.io/hostname
+
+nodeSelector: {}
+
+tolerations: []
+
+# ========================================================================
+# Monitoring
+# ========================================================================
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: false
+
+# ========================================================================
+# Extra Configuration
+# ========================================================================
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+  prometheus.io/path: "/metrics"
+
+podLabels: {}
+
+terminationGracePeriodSeconds: 30
+
+# Extra environment variables
+extraEnv: []
+# - name: CUSTOM_VAR
+#   value: "custom-value"
+
+# Extra volumes
+extraVolumes: []
+# - name: custom-volume
+#   emptyDir: {}
+
+# Extra volume mounts
+extraVolumeMounts: []
+# - name: custom-volume
+#   mountPath: /custom
