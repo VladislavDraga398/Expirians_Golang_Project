@@ -45,21 +45,10 @@ func Run(ctx context.Context, cfg Config) error {
 	repo := memory.NewOrderRepository()
 	outboxRepo := memory.NewOutboxRepository()
 	timelineRepo := memory.NewTimelineRepository()
+	// NOTE: Using mock services for development/demo purposes
+	// In production, replace with real inventory and payment service clients
 	inventorySvc := inventory.NewMockService()
 	paymentSvc := payment.NewMockService()
-	// Allow forcing failures for testing metrics via env flags
-	failReserve := os.Getenv("OMS_FAIL_RESERVE")
-	failPay := os.Getenv("OMS_FAIL_PAY")
-	logger.Errorf("DEBUG: Failure flags: OMS_FAIL_RESERVE=%s, OMS_FAIL_PAY=%s", failReserve, failPay)
-	
-	if failReserve == "true" {
-		inventorySvc.ReserveErr = errors.New("forced reserve fail")
-		logger.Error("TESTING: Reserve failures enabled")
-	}
-	if failPay == "true" {
-		paymentSvc.PayErr = errors.New("forced pay fail")
-		logger.Error("TESTING: Payment failures enabled")
-	}
 	
 	// Инициализация Kafka producer (опционально)
 	var kafkaProducer *kafka.Producer

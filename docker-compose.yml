@@ -8,8 +8,6 @@ services:
     environment:
       - OMS_GRPC_ADDR=${OMS_GRPC_ADDR}
       - OMS_METRICS_ADDR=${OMS_METRICS_ADDR}
-      - OMS_FAIL_RESERVE=${OMS_FAIL_RESERVE:-false}
-      - OMS_FAIL_PAY=${OMS_FAIL_PAY:-false}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
     ports:

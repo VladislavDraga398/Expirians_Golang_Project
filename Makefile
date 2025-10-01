@@ -21,7 +21,11 @@ LDFLAGS ?= -s -w \
   -X github.com/vladislavdragonenkov/oms/internal/version.commit=$(COMMIT) \
   -X github.com/vladislavdragonenkov/oms/internal/version.date=$(DATE)
 
-.PHONY: all proto generate tidy deps build run test test-unit test-integration cover clean fmt vet lint lint-install staticcheck hadolint help docker-build docker-run compose-up compose-down compose-build-up buildx-create buildx-build buildx-push hooks-install commit-template ensure-grpcurl wait-health demo-run demo demo-down ensure-ghz load demo-refund demo-fail-reserve demo-fail-pay demo-success
+.PHONY: all proto generate tidy deps build run test test-unit test-integration
+ cover clean fmt vet lint lint-install staticcheck hadolint help docker-build
+  docker-run compose-up compose-down compose-build-up buildx-create buildx-build buildx-push
+   hooks-install commit-template ensure-grpcurl wait-health demo-run demo demo-down ensure-ghz
+    load demo-refund demo-success
 
 # -------- Codegen / deps --------
 # Генерация gRPC/Protobuf кода из proto/oms/v1/order_service.proto
@@ -154,24 +158,6 @@ load: ensure-ghz ## Нагрузочный прогон CreateOrder для ме�
 
 demo-refund: ## Демо сценарий с RefundOrder (Create→Pay→Refund→Get)
 	env PATH="$$($(GO) env GOPATH)/bin:$$PATH" ./scripts/saga_refund_demo.sh
-
-demo-fail-reserve: ## Демо с принудительной ошибкой резерва (для тестирования Failed/s)
-	@echo "Перезапускаю стек с OMS_FAIL_RESERVE=true..."
-	$(MAKE) compose-down
-	OMS_FAIL_RESERVE=true $(MAKE) compose-build-up
-	$(MAKE) wait-health
-	$(MAKE) ensure-grpcurl
-	$(MAKE) demo-run
-	@echo "Проверьте Grafana: Saga Failed/s должен показать ненулевые значения"
-
-demo-fail-pay: ## Демо с принудительной ошибкой оплаты (для тестирования Failed/s)
-	@echo "Перезапускаю стек с OMS_FAIL_PAY=true..."
-	$(MAKE) compose-down
-	OMS_FAIL_PAY=true $(MAKE) compose-build-up
-	$(MAKE) wait-health
-	$(MAKE) ensure-grpcurl
-	$(MAKE) demo-run
-	@echo "Проверьте Grafana: Saga Failed/s должен показать ненулевые значения"
 
 demo-success: ## Демо успешного сценария (для тестирования Completed/s)
 	@echo "Перезапускаю стек в нормальном режиме..."

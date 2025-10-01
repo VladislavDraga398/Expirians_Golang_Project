@@ -3,6 +3,7 @@ package grpcsvc_test
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,9 +63,10 @@ func loggerForTests() *logrus.Entry {
 }
 
 type stubOrchestrator struct {
-	started []string
+	mu       sync.Mutex
+	started  []string
 	canceled []string
-	refunds []struct {
+	refunds  []struct {
 		id     string
 		amount int64
 		reason string
@@ -72,19 +74,58 @@ type stubOrchestrator struct {
 }
 
 func (s *stubOrchestrator) Start(orderID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.started = append(s.started, orderID)
 }
 
 func (s *stubOrchestrator) Cancel(orderID, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.canceled = append(s.canceled, orderID)
 }
 
 func (s *stubOrchestrator) Refund(orderID string, amountMinor int64, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.refunds = append(s.refunds, struct {
 		id     string
 		amount int64
 		reason string
 	}{orderID, amountMinor, reason})
+}
+
+// Helper methods for safe reading in tests
+func (s *stubOrchestrator) getStarted() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]string, len(s.started))
+	copy(result, s.started)
+	return result
+}
+
+func (s *stubOrchestrator) getCanceled() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]string, len(s.canceled))
+	copy(result, s.canceled)
+	return result
+}
+
+func (s *stubOrchestrator) getRefunds() []struct {
+	id     string
+	amount int64
+	reason string
+} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]struct {
+		id     string
+		amount int64
+		reason string
+	}, len(s.refunds))
+	copy(result, s.refunds)
+	return result
 }
 
 func seedOrder(t *testing.T, repo domain.OrderRepository, status domain.OrderStatus) domain.Order {
@@ -161,7 +202,7 @@ func TestOrderService_PayOrder(t *testing.T) {
 	
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
-	require.Equal(t, []string{"order-1"}, stub.started)
+	require.Equal(t, []string{"order-1"}, stub.getStarted())
 }
 
 func TestOrderService_CancelOrder(t *testing.T) {
@@ -205,7 +246,7 @@ func TestOrderService_CancelOrder_TriggersSaga(t *testing.T) {
 	
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
-	require.Equal(t, []string{"order-1"}, stub.canceled)
+	require.Equal(t, []string{"order-1"}, stub.getCanceled())
 }
 
 func TestOrderService_RefundOrder_TriggersSaga(t *testing.T) {
@@ -219,9 +260,10 @@ func TestOrderService_RefundOrder_TriggersSaga(t *testing.T) {
 	
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
-	require.Len(t, stub.refunds, 1)
-	require.Equal(t, "order-1", stub.refunds[0].id)
-	require.Equal(t, int64(50), stub.refunds[0].amount)
+	refunds := stub.getRefunds()
+	require.Len(t, refunds, 1)
+	require.Equal(t, "order-1", refunds[0].id)
+	require.Equal(t, int64(50), refunds[0].amount)
 }
 
 func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
