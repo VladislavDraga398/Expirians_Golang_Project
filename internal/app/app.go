@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
@@ -16,6 +17,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
 	grpcsvc "github.com/vladislavdragonenkov/oms/internal/service/grpc"
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
@@ -58,14 +60,45 @@ func Run(ctx context.Context, cfg Config) error {
 		paymentSvc.PayErr = errors.New("forced pay fail")
 		logger.Error("TESTING: Payment failures enabled")
 	}
-	sagaOrchestrator := saga.NewOrchestrator(
-		repo,
-		outboxRepo,
-		timelineRepo,
-		inventorySvc,
-		paymentSvc,
-		logger,
-	)
+	
+	// Инициализация Kafka producer (опционально)
+	var kafkaProducer *kafka.Producer
+	var sagaOrchestrator saga.Orchestrator
+	
+	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
+	if kafkaBrokers != "" {
+		brokers := strings.Split(kafkaBrokers, ",")
+		producer, err := kafka.NewProducer(brokers)
+		if err != nil {
+			logger.WithError(err).Warn("failed to create kafka producer, continuing without kafka")
+		} else {
+			kafkaProducer = producer
+			logger.WithField("brokers", brokers).Info("kafka producer initialized")
+			
+			// Создаём orchestrator с Kafka
+			sagaOrchestrator = saga.NewOrchestratorWithKafka(
+				repo,
+				outboxRepo,
+				timelineRepo,
+				inventorySvc,
+				paymentSvc,
+				kafkaProducer,
+				logger,
+			)
+		}
+	}
+	
+	// Если Kafka не настроен, используем обычный orchestrator
+	if sagaOrchestrator == nil {
+		sagaOrchestrator = saga.NewOrchestrator(
+			repo,
+			outboxRepo,
+			timelineRepo,
+			inventorySvc,
+			paymentSvc,
+			logger,
+		)
+	}
 
 	serviceLogger := logger.WithField("layer", "grpc")
 	orderService := grpcsvc.NewOrderService(repo, timelineRepo, sagaOrchestrator, serviceLogger)
@@ -116,9 +149,27 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 			grpcServer.Stop()
 		}
 		shutdownHTTP(metricsSrv, logger)
+		
+		// Закрываем Kafka producer
+		if kafkaProducer != nil {
+			if err := kafkaProducer.Close(); err != nil {
+				logger.WithError(err).Warn("failed to close kafka producer")
+			} else {
+				logger.Info("kafka producer closed")
+			}
+		}
+		
 		return ctx.Err()
 	case err := <-errCh:
 		shutdownHTTP(metricsSrv, logger)
+		
+		// Закрываем Kafka producer
+		if kafkaProducer != nil {
+			if closeErr := kafkaProducer.Close(); closeErr != nil {
+				logger.WithError(closeErr).Warn("failed to close kafka producer")
+			}
+		}
+		
 		if errors.Is(err, grpc.ErrServerStopped) {
 			return nil
 		}

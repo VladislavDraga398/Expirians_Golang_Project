@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
+	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
 	"github.com/vladislavdragonenkov/oms/internal/metrics"
 )
 
@@ -19,13 +20,14 @@ type Orchestrator interface {
 
 // orchestrator реализует последовательность шагов саги: Reserve → Pay → Confirm.
 type orchestrator struct {
-	orders    domain.OrderRepository
-	outbox    domain.OutboxRepository
-	timeline  domain.TimelineRepository
-	inventory domain.InventoryService
-	payments  domain.PaymentService
-	logger    *log.Entry
-	metrics   *metrics.SagaMetrics
+	orders        domain.OrderRepository
+	outbox        domain.OutboxRepository
+	timeline      domain.TimelineRepository
+	inventory     domain.InventoryService
+	payments      domain.PaymentService
+	logger        *log.Entry
+	metrics       *metrics.SagaMetrics
+	kafkaProducer *kafka.Producer // опциональный Kafka producer для event-driven архитектуры
 }
 
 // NewOrchestrator создаёт рабочий экземпляр оркестратора.
@@ -48,6 +50,31 @@ func NewOrchestrator(
 		payments:  payments,
 		logger:    logger,
 		metrics:   metrics.NewSagaMetrics(),
+	}
+}
+
+// NewOrchestratorWithKafka создаёт оркестратор с Kafka producer для event-driven архитектуры.
+func NewOrchestratorWithKafka(
+	orders domain.OrderRepository,
+	outbox domain.OutboxRepository,
+	timeline domain.TimelineRepository,
+	inventory domain.InventoryService,
+	payments domain.PaymentService,
+	kafkaProducer *kafka.Producer,
+	logger *log.Entry,
+) Orchestrator {
+	if logger == nil {
+		logger = log.New().WithField("component", "saga")
+	}
+	return &orchestrator{
+		orders:        orders,
+		outbox:        outbox,
+		timeline:      timeline,
+		inventory:     inventory,
+		payments:      payments,
+		logger:        logger,
+		metrics:       metrics.NewSagaMetrics(),
+		kafkaProducer: kafkaProducer,
 	}
 }
 
@@ -95,6 +122,12 @@ func (o *orchestrator) Start(orderID string) {
 		return
 	}
 
+	// Публикуем событие начала саги
+	o.publishSagaEvent(kafka.EventTypeSagaStarted, orderID, map[string]interface{}{
+		"customer_id": order.CustomerID,
+		"status":      string(order.Status),
+	})
+
 	switch order.Status {
 	case domain.OrderStatusPending:
 		if err := o.handleReserve(&order); err != nil {
@@ -121,7 +154,15 @@ func (o *orchestrator) handleReserve(order *domain.Order) error {
         o.failOrder(order, domain.OrderStatusCanceled, err)
         return err
     }
-    return o.updateStatus(order, domain.OrderStatusReserved)
+    if err := o.updateStatus(order, domain.OrderStatusReserved); err != nil {
+        return err
+    }
+    // Публикуем событие в Kafka
+    o.publishSagaEvent(kafka.EventTypeStepReserved, order.ID, map[string]interface{}{
+        "customer_id": order.CustomerID,
+        "items_count": len(order.Items),
+    })
+    return nil
 }
 
 func (o *orchestrator) handlePayment(order *domain.Order) error {
@@ -138,7 +179,16 @@ func (o *orchestrator) handlePayment(order *domain.Order) error {
         o.failOrder(order, domain.OrderStatusCanceled, domain.ErrPaymentIndeterminate)
         return domain.ErrPaymentIndeterminate
     }
-    return o.updateStatus(order, domain.OrderStatusPaid)
+    if err := o.updateStatus(order, domain.OrderStatusPaid); err != nil {
+        return err
+    }
+    // Публикуем событие в Kafka
+    o.publishSagaEvent(kafka.EventTypeStepPaid, order.ID, map[string]interface{}{
+        "amount":   order.AmountMinor,
+        "currency": order.Currency,
+        "status":   string(status),
+    })
+    return nil
 }
 
 func (o *orchestrator) handleConfirm(order *domain.Order) {
@@ -155,6 +205,11 @@ func (o *orchestrator) handleConfirm(order *domain.Order) {
         o.metrics.RecordSagaCompleted()
         o.logger.WithField("order_id", order.ID).Debug("RecordSagaCompleted called")
     }
+    // Публикуем событие успешного завершения саги
+    o.publishSagaEvent(kafka.EventTypeSagaCompleted, order.ID, map[string]interface{}{
+        "customer_id": order.CustomerID,
+        "amount":      order.AmountMinor,
+    })
 }
 
  
@@ -206,6 +261,12 @@ func (o *orchestrator) Cancel(orderID, reason string) {
         delete(payload, "reason")
     }
     o.emitEvent(&order, "OrderCanceled", payload)
+    
+    // Публикуем событие отмены саги в Kafka
+    o.publishSagaEvent(kafka.EventTypeSagaCanceled, order.ID, map[string]interface{}{
+        "reason":      reason,
+        "customer_id": order.CustomerID,
+    })
 }
 
 // Refund инициирует возврат средств и переводит заказ в статус refunded.
@@ -264,6 +325,13 @@ func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) 
         delete(payload, "reason")
     }
     o.emitEvent(&order, "OrderRefunded", payload)
+    
+    // Публикуем событие возврата в Kafka
+    o.publishSagaEvent(kafka.EventTypeSagaRefunded, order.ID, map[string]interface{}{
+        "amount":      amountMinor,
+        "reason":      reason,
+        "customer_id": order.CustomerID,
+    })
 }
 
 func (o *orchestrator) failOrder(order *domain.Order, status domain.OrderStatus, rootErr error) {
@@ -279,6 +347,13 @@ func (o *orchestrator) failOrder(order *domain.Order, status domain.OrderStatus,
         "ts":     time.Now().UTC().Format(time.RFC3339Nano),
     }
     o.emitEvent(order, "OrderSagaFailed", payload)
+    
+    // Публикуем событие провала саги в Kafka
+    o.publishSagaEvent(kafka.EventTypeSagaFailed, order.ID, map[string]interface{}{
+        "reason":      rootErr.Error(),
+        "customer_id": order.CustomerID,
+        "status":      string(status),
+    })
 }
 
 func (o *orchestrator) releaseInventory(order *domain.Order) {
@@ -381,6 +456,22 @@ func (o *orchestrator) emitEvent(order *domain.Order, eventType string, payload 
             o.metrics.RecordTimelineEvent()
         }
     }
+}
+
+// publishSagaEvent публикует событие саги в Kafka (если producer настроен)
+func (o *orchestrator) publishSagaEvent(eventType kafka.EventType, orderID string, metadata map[string]interface{}) {
+	if o.kafkaProducer == nil {
+		return // Kafka не настроен, пропускаем
+	}
+
+	event := kafka.NewSagaEvent(eventType, orderID, metadata)
+	if err := o.kafkaProducer.PublishEvent(kafka.TopicSagaEvents, orderID, event); err != nil {
+		// Логируем ошибку, но не прерываем saga - Kafka опциональный
+		o.logger.WithError(err).WithFields(log.Fields{
+			"event_type": eventType,
+			"order_id":   orderID,
+		}).Warn("failed to publish saga event to kafka")
+	}
 }
 
 type noopOrchestrator struct {
