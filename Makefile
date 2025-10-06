@@ -32,7 +32,7 @@ LDFLAGS ?= -s -w \
         compose-up compose-down compose-build-up \
         k8s-validate k8s-apply k8s-delete k8s-status k8s-logs k8s-describe \
         helm-lint helm-template helm-install helm-upgrade helm-uninstall helm-status helm-dry-run \
-        ensure-grpcurl wait-health demo-run demo demo-down ensure-ghz load demo-refund demo-success
+        ensure-grpcurl wait-health demo-run demo demo-down ensure-ghz load load-stress demo-refund demo-success
 
 # ========================================================================
 # 🎯 ОСНОВНЫЕ КОМАНДЫ
@@ -221,10 +221,15 @@ ensure-ghz: ## Установить ghz (если отсутствует)
 
 load: ensure-ghz ## Нагрузочный прогон CreateOrder для метрик (n=100, c=10)
 	env PATH="$$($(GO) env GOPATH)/bin:$$PATH" ghz --insecure \
-		--proto proto/oms/v1/order_service.proto \
 		--call oms.v1.OrderService.CreateOrder \
-		--data '{"customer_id":"load","currency":"USD","items":[{"sku":"sku","qty":1,"price":{"currency":"USD","amount_minor":100}}]}' \
-		-n 100 -c 10 localhost:50051
+		--data '{"customer_id":"load-test","currency":"USD","items":[{"sku":"SKU-LOAD","qty":1,"price":{"currency":"USD","amount_minor":1000}}]}' \
+		-n 100 -c 10 --connections=10 localhost:50051
+
+load-stress: ensure-ghz ## 🔥 Стресс-тест (n=1000, c=50)
+	env PATH="$$($(GO) env GOPATH)/bin:$$PATH" ghz --insecure \
+		--call oms.v1.OrderService.CreateOrder \
+		--data '{"customer_id":"stress-test","currency":"USD","items":[{"sku":"SKU-STRESS","qty":1,"price":{"currency":"USD","amount_minor":1000}}]}' \
+		-n 1000 -c 50 --connections=20 localhost:50051
 	@echo "Load complete. Проверьте Grafana и Prometheus."
 
 demo-refund: ## Демо сценарий с RefundOrder (Create→Pay→Refund→Get)

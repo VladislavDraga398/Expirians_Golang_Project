@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/reflection"
 
 	healthcheck "github.com/vladislavdragonenkov/oms/internal/health"
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
@@ -107,6 +108,9 @@ func Run(ctx context.Context, cfg Config) error {
 
 omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 	grpcMetrics.InitializeMetrics(grpcServer)
+
+	// Register reflection service for grpcurl and load testing tools
+	reflection.Register(grpcServer)
 
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
