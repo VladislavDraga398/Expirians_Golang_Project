@@ -85,10 +85,10 @@ func (suite *OrderLifecycleTestSuite) TestSuccessfulOrderLifecycle() {
 		},
 	})
 
-	require.NoError(suite.T(), err)
-	require.NotNil(suite.T(), createResp.Order)
-	require.Equal(suite.T(), omsv1.OrderStatus_ORDER_STATUS_PENDING, createResp.Order.Status)
-	require.Equal(suite.T(), int64(209898), createResp.Order.Amount.AmountMinor) // $1999 + 2*$49.99
+	require.NoError(suite.Suite.T(), err)
+	require.NotNil(suite.Suite.T(), createResp.Order)
+	require.Equal(suite.Suite.T(), omsv1.OrderStatus_ORDER_STATUS_PENDING, createResp.Order.Status)
+	require.Equal(suite.Suite.T(), int64(209898), createResp.Order.Amount.AmountMinor) // $1999 + 2*$49.99
 
 	orderID := createResp.Order.Id
 
@@ -96,8 +96,8 @@ func (suite *OrderLifecycleTestSuite) TestSuccessfulOrderLifecycle() {
 	payResp, err := suite.service.PayOrder(ctx, &omsv1.PayOrderRequest{
 		OrderId: orderID,
 	})
-	require.NoError(suite.T(), err)
-	require.Equal(suite.T(), orderID, payResp.OrderId)
+	require.NoError(suite.Suite.T(), err)
+	require.Equal(suite.Suite.T(), orderID, payResp.OrderId)
 
 	// Ждём завершения саги
 	suite.waitForOrderStatus(orderID, domain.OrderStatusConfirmed, 5*time.Second)
@@ -106,18 +106,18 @@ func (suite *OrderLifecycleTestSuite) TestSuccessfulOrderLifecycle() {
 	getResp, err := suite.service.GetOrder(ctx, &omsv1.GetOrderRequest{
 		OrderId: orderID,
 	})
-	require.NoError(suite.T(), err)
-	require.Equal(suite.T(), omsv1.OrderStatus_ORDER_STATUS_CONFIRMED, getResp.Order.Status)
+	require.NoError(suite.Suite.T(), err)
+	require.Equal(suite.Suite.T(), omsv1.OrderStatus_ORDER_STATUS_CONFIRMED, getResp.Order.Status)
 
 	// 4. Проверяем timeline
-	require.NotNil(suite.T(), getResp.Timeline)
-	require.GreaterOrEqual(suite.T(), len(getResp.Timeline), 4) // Минимум 4 события: pending->reserved->paid->confirmed
+	require.NotNil(suite.Suite.T(), getResp.Timeline)
+	require.GreaterOrEqual(suite.Suite.T(), len(getResp.Timeline), 4) // Минимум 4 события: pending->reserved->paid->confirmed
 
 	// 5. Проверяем вызовы внешних сервисов
-	require.Equal(suite.T(), 1, suite.inventory.ReserveCalls)
-	require.Equal(suite.T(), 1, suite.payment.PayCalls)
-	require.Equal(suite.T(), 0, suite.inventory.ReleaseCalls) // Не должно быть отмен
-	require.Equal(suite.T(), 0, suite.payment.RefundCalls)    // Не должно быть возвратов
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReserveCalls)
+	require.Equal(suite.Suite.T(), 1, suite.payment.PayCalls)
+	require.Equal(suite.Suite.T(), 0, suite.inventory.ReleaseCalls) // Не должно быть отмен
+	require.Equal(suite.Suite.T(), 0, suite.payment.RefundCalls)    // Не должно быть возвратов
 }
 
 func (suite *OrderLifecycleTestSuite) TestOrderCancellation() {
@@ -131,24 +131,24 @@ func (suite *OrderLifecycleTestSuite) TestOrderCancellation() {
 		OrderId: orderID,
 		Reason:  "Customer changed mind",
 	})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	// 3. Ждём завершения компенсаций и проверяем статус
 	updatedOrder := suite.waitForOrderStatusViaGRPC(ctx, orderID, omsv1.OrderStatus_ORDER_STATUS_CANCELED, 2*time.Second)
 
 	// 4. Проверяем компенсации
-	require.Equal(suite.T(), 1, suite.inventory.ReleaseCalls) // Освобождён резерв
-	require.Equal(suite.T(), 1, suite.payment.RefundCalls)    // Возвращены деньги
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReleaseCalls) // Освобождён резерв
+	require.Equal(suite.Suite.T(), 1, suite.payment.RefundCalls)    // Возвращены деньги
 
 	// 4. Проверяем timeline события
 	hasCancel := false
 	for _, event := range updatedOrder.Timeline {
 		if event.Type == "OrderCanceled" {
 			hasCancel = true
-			require.Equal(suite.T(), "Customer changed mind", event.Reason)
+			require.Equal(suite.Suite.T(), "Customer changed mind", event.Reason)
 		}
 	}
-	require.True(suite.T(), hasCancel, "Timeline should contain OrderCanceled event")
+	require.True(suite.Suite.T(), hasCancel, "Timeline should contain OrderCanceled event")
 }
 
 func (suite *OrderLifecycleTestSuite) TestPartialRefund() {
@@ -167,24 +167,24 @@ func (suite *OrderLifecycleTestSuite) TestPartialRefund() {
 		},
 		Reason: "Partial return - one item damaged",
 	})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	// 3. Ждём завершения и проверяем статус
 	updatedOrder := suite.waitForOrderStatusViaGRPC(ctx, orderID, omsv1.OrderStatus_ORDER_STATUS_REFUNDED, 2*time.Second)
 
 	// 4. Проверяем вызовы
-	require.Equal(suite.T(), 1, suite.payment.RefundCalls)
-	require.Equal(suite.T(), 1, suite.inventory.ReleaseCalls) // Весь резерв освобождается
+	require.Equal(suite.Suite.T(), 1, suite.payment.RefundCalls)
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReleaseCalls) // Весь резерв освобождается
 
 	// 5. Проверяем timeline события
 	hasRefund := false
 	for _, event := range updatedOrder.Timeline {
 		if event.Type == "OrderRefunded" {
 			hasRefund = true
-			require.Equal(suite.T(), "Partial return - one item damaged", event.Reason)
+			require.Equal(suite.Suite.T(), "Partial return - one item damaged", event.Reason)
 		}
 	}
-	require.True(suite.T(), hasRefund, "Timeline should contain OrderRefunded event")
+	require.True(suite.Suite.T(), hasRefund, "Timeline should contain OrderRefunded event")
 }
 
 func (suite *OrderLifecycleTestSuite) TestInventoryFailureCompensation() {
@@ -205,24 +205,24 @@ func (suite *OrderLifecycleTestSuite) TestInventoryFailureCompensation() {
 			},
 		},
 	})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 	orderID := createResp.Order.Id
 
 	// 2. Инициируем платёж
 	_, err = suite.service.PayOrder(ctx, &omsv1.PayOrderRequest{OrderId: orderID})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	// Ждём завершения саги с ошибкой
 	suite.waitForOrderStatus(orderID, domain.OrderStatusCanceled, 5*time.Second)
 
 	// 3. Проверяем компенсацию
 	order, err := suite.repo.Get(orderID)
-	require.NoError(suite.T(), err)
-	require.Equal(suite.T(), domain.OrderStatusCanceled, order.Status)
+	require.NoError(suite.Suite.T(), err)
+	require.Equal(suite.Suite.T(), domain.OrderStatusCanceled, order.Status)
 
 	// 4. Проверяем, что платёж не был инициирован
-	require.Equal(suite.T(), 1, suite.inventory.ReserveCalls)
-	require.Equal(suite.T(), 0, suite.payment.PayCalls) // Платёж не должен был произойти
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReserveCalls)
+	require.Equal(suite.Suite.T(), 0, suite.payment.PayCalls) // Платёж не должен был произойти
 }
 
 func (suite *OrderLifecycleTestSuite) TestPaymentFailureCompensation() {
@@ -239,13 +239,13 @@ func (suite *OrderLifecycleTestSuite) TestPaymentFailureCompensation() {
 
 	// 2. Проверяем компенсацию
 	order, err := suite.repo.Get(orderID)
-	require.NoError(suite.T(), err)
-	require.Equal(suite.T(), domain.OrderStatusCanceled, order.Status)
+	require.NoError(suite.Suite.T(), err)
+	require.Equal(suite.Suite.T(), domain.OrderStatusCanceled, order.Status)
 
 	// 3. Проверяем, что резерв был освобождён
-	require.Equal(suite.T(), 1, suite.inventory.ReserveCalls)
-	require.Equal(suite.T(), 1, suite.inventory.ReleaseCalls) // Компенсация
-	require.Equal(suite.T(), 1, suite.payment.PayCalls)
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReserveCalls)
+	require.Equal(suite.Suite.T(), 1, suite.inventory.ReleaseCalls) // Компенсация
+	require.Equal(suite.Suite.T(), 1, suite.payment.PayCalls)
 }
 
 // Вспомогательные методы
@@ -258,11 +258,11 @@ func (suite *OrderLifecycleTestSuite) createAndPayOrder(ctx context.Context) str
 			{Sku: "test-item", Qty: 1, Price: &omsv1.Money{Currency: "USD", AmountMinor: 10000}},
 		},
 	})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	orderID := createResp.Order.Id
 	_, err = suite.service.PayOrder(ctx, &omsv1.PayOrderRequest{OrderId: orderID})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	suite.waitForOrderStatus(orderID, domain.OrderStatusConfirmed, 5*time.Second)
 	return orderID
@@ -280,11 +280,11 @@ func (suite *OrderLifecycleTestSuite) createOrderAndPay(ctx context.Context) str
 			{Sku: "fail-item", Qty: 1, Price: &omsv1.Money{Currency: "USD", AmountMinor: 5000}},
 		},
 	})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	orderID := createResp.Order.Id
 	_, err = suite.service.PayOrder(ctx, &omsv1.PayOrderRequest{OrderId: orderID})
-	require.NoError(suite.T(), err)
+	require.NoError(suite.Suite.T(), err)
 
 	return orderID
 }
@@ -302,7 +302,7 @@ func (suite *OrderLifecycleTestSuite) waitForOrderStatus(orderID string, expecte
 
 	// Если не дождались, показываем текущий статус
 	order, _ := suite.repo.Get(orderID)
-	suite.T().Fatalf("Order %s did not reach status %s within %v, current status: %s",
+	suite.Suite.T().Fatalf("Order %s did not reach status %s within %v, current status: %s",
 		orderID, expectedStatus, timeout, order.Status)
 }
 
@@ -321,10 +321,10 @@ func (suite *OrderLifecycleTestSuite) waitForOrderStatusViaGRPC(ctx context.Cont
 	// Последняя попытка для диагностики
 	resp, _ := suite.service.GetOrder(ctx, &omsv1.GetOrderRequest{OrderId: orderID})
 	if resp != nil {
-		suite.T().Fatalf("Order %s did not reach status %s within %v, current status: %s",
+		suite.Suite.T().Fatalf("Order %s did not reach status %s within %v, current status: %s",
 			orderID, expectedStatus, timeout, resp.Order.Status)
 	} else {
-		suite.T().Fatalf("Order %s not found or error occurred", orderID)
+		suite.Suite.T().Fatalf("Order %s not found or error occurred", orderID)
 	}
 	return nil
 }
