@@ -215,9 +215,7 @@ func (s *OrderService) RefundOrder(ctx context.Context, req *omsv1.RefundOrderRe
 	if s.saga != nil {
 		go s.saga.Refund(order.ID, amountMinor, req.Reason)
 	} else {
-		if amountMinor <= 0 || amountMinor > order.AmountMinor {
-			amountMinor = order.AmountMinor
-		}
+		// Без saga просто меняем статус
 		order.Status = domain.OrderStatusRefunded
 		order.UpdatedAt = time.Now().UTC()
 		if err := s.repo.Save(order); err != nil {

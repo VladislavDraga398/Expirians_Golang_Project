@@ -1,7 +1,6 @@
 package saga
 
 import (
-	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -101,18 +100,6 @@ func collectOutbox(t *testing.T, outbox domain.OutboxRepository) []domain.Outbox
 	}
 
 	return repo.AllPending()
-}
-
-func decodeStatus(t *testing.T, msg domain.OutboxMessage) string {
-	t.Helper()
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-		t.Fatalf("decode payload: %v", err)
-	}
-
-	status, _ := payload["status"].(string)
-	return status
 }
 
 func TestOrchestrator_SuccessFlow(t *testing.T) {

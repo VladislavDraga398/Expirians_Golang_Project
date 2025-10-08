@@ -122,7 +122,7 @@ jobs:
           go build -ldflags "$LDFLAGS" -o bin/order-service ./cmd/order-service
           
           echo "✅ Build successful!"
-          ./bin/order-service --version || echo "Binary created"
+          ls -lh bin/order-service
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

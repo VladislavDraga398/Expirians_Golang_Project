@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
@@ -41,7 +42,8 @@ func newTestServer() (*grpc.ClientConn, func(), error) {
 		return listener.Dial()
 	}
 
-	conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithInsecure())
+	//nolint:staticcheck // grpc.Dial is required for bufconn testing
+	conn, err := grpc.Dial("bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		server.Stop()
 		return nil, func() {}, err
@@ -273,13 +275,13 @@ func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
 	service := grpcsvc.NewOrderService(repo, timeline, nil, loggerForTests())
 
 	// Добавляем события в timeline вручную для теста
-	timeline.Append(domain.TimelineEvent{
+	_ = timeline.Append(domain.TimelineEvent{
 		OrderID:  "order-1",
 		Type:     "OrderStatusChanged",
 		Reason:   "pending",
 		Occurred: time.Now().Add(-2 * time.Minute),
 	})
-	timeline.Append(domain.TimelineEvent{
+	_ = timeline.Append(domain.TimelineEvent{
 		OrderID:  "order-1",
 		Type:     "OrderStatusChanged",
 		Reason:   "confirmed",
