@@ -2,6 +2,7 @@ package saga
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 type stubInventory struct {
+	mu         sync.Mutex
 	reserveErr error
 	releaseErr error
 	reserveCnt int
@@ -19,19 +21,23 @@ type stubInventory struct {
 }
 
 func (s *stubInventory) Reserve(orderID string, items []domain.OrderItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.reserveCnt++
 	return s.reserveErr
 }
 
 func (s *stubInventory) Release(orderID string, items []domain.OrderItem) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.releaseCnt++
 	return s.releaseErr
 }
 
 type stubPayment struct {
-	payStatus domain.PaymentStatus
-	payErr    error
-
+	mu           sync.Mutex
+	payStatus    domain.PaymentStatus
+	payErr       error
 	refundStatus domain.PaymentStatus
 	refundErr    error
 
@@ -40,11 +46,15 @@ type stubPayment struct {
 }
 
 func (s *stubPayment) Pay(orderID string, amountMinor int64, currency string) (domain.PaymentStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.payCnt++
 	return s.payStatus, s.payErr
 }
 
 func (s *stubPayment) Refund(orderID string, amountMinor int64, currency string) (domain.PaymentStatus, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.refundCnt++
 	return s.refundStatus, s.refundErr
 }
