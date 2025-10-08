@@ -22,8 +22,8 @@ type Consumer struct {
 	handler     MessageHandler
 	logger      *log.Entry
 	wg          sync.WaitGroup
-	dlqProducer *Producer      // Producer для отправки в DLQ
-	maxRetries  int            // Максимальное количество retry попыток
+	dlqProducer *Producer // Producer для отправки в DLQ
+	maxRetries  int       // Максимальное количество retry попыток
 }
 
 // NewConsumer создает новый Kafka consumer
@@ -143,13 +143,13 @@ func (c *Consumer) ConsumeClaim(session sarama.ConsumerGroupSession, claim saram
 func (c *Consumer) handleMessageWithRetry(ctx context.Context, message *sarama.ConsumerMessage) error {
 	// Получаем текущий retry count из headers
 	retryCount := c.getRetryCount(message)
-	
+
 	// Пытаемся обработать сообщение
 	err := c.handler(ctx, message)
 	if err == nil {
 		return nil // Успешно обработано
 	}
-	
+
 	// Если ошибка и не достигнут лимит retry
 	if retryCount < c.maxRetries {
 		c.logger.WithFields(log.Fields{
@@ -157,12 +157,12 @@ func (c *Consumer) handleMessageWithRetry(ctx context.Context, message *sarama.C
 			"retry_count": retryCount,
 			"max_retries": c.maxRetries,
 		}).Warn("message processing failed, will retry")
-		
+
 		// В реальной системе здесь можно добавить exponential backoff
 		// или отправить в retry topic с delay
 		return err
 	}
-	
+
 	// Исчерпаны все попытки - отправляем в DLQ
 	if c.dlqProducer != nil {
 		if dlqErr := c.sendToDLQ(message, err); dlqErr != nil {
@@ -175,7 +175,7 @@ func (c *Consumer) handleMessageWithRetry(ctx context.Context, message *sarama.C
 		}).Info("message sent to DLQ after max retries")
 		return nil // Считаем обработанным, так как отправили в DLQ
 	}
-	
+
 	return err
 }
 
@@ -205,7 +205,7 @@ func (c *Consumer) sendToDLQ(message *sarama.ConsumerMessage, processingErr erro
 		"failed_at":          time.Now().UTC().Format(time.RFC3339),
 		"retry_count":        c.getRetryCount(message),
 	}
-	
+
 	// Отправляем в DLQ topic
 	return c.dlqProducer.PublishEvent(
 		TopicDeadLetterQueue,

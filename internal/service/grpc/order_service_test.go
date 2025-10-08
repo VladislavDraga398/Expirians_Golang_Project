@@ -199,7 +199,7 @@ func TestOrderService_PayOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "order-1", resp.OrderId)
 	require.Equal(t, omsv1.OrderStatus_ORDER_STATUS_PENDING, resp.Status)
-	
+
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
 	require.Equal(t, []string{"order-1"}, stub.getStarted())
@@ -243,7 +243,7 @@ func TestOrderService_CancelOrder_TriggersSaga(t *testing.T) {
 
 	_, err := service.CancelOrder(context.Background(), &omsv1.CancelOrderRequest{OrderId: "order-1", Reason: "customer"})
 	require.NoError(t, err)
-	
+
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
 	require.Equal(t, []string{"order-1"}, stub.getCanceled())
@@ -257,7 +257,7 @@ func TestOrderService_RefundOrder_TriggersSaga(t *testing.T) {
 
 	_, err := service.RefundOrder(context.Background(), &omsv1.RefundOrderRequest{OrderId: "order-1", Amount: &omsv1.Money{AmountMinor: 50}})
 	require.NoError(t, err)
-	
+
 	// Даём время для асинхронного вызова
 	time.Sleep(10 * time.Millisecond)
 	refunds := stub.getRefunds()
@@ -281,7 +281,7 @@ func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
 	})
 	timeline.Append(domain.TimelineEvent{
 		OrderID:  "order-1",
-		Type:     "OrderStatusChanged", 
+		Type:     "OrderStatusChanged",
 		Reason:   "confirmed",
 		Occurred: time.Now().Add(-1 * time.Minute),
 	})
@@ -290,7 +290,7 @@ func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp.Order)
 	require.Equal(t, "order-1", resp.Order.Id)
-	
+
 	// Проверяем timeline
 	require.NotNil(t, resp.Timeline)
 	require.Len(t, resp.Timeline, 2)

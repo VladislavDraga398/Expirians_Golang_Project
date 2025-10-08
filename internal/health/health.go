@@ -26,11 +26,11 @@ type Check struct {
 
 // Response представляет ответ health check
 type Response struct {
-	Status    Status            `json:"status"`
-	Timestamp time.Time         `json:"timestamp"`
-	Checks    map[string]Check  `json:"checks,omitempty"`
-	Version   string            `json:"version,omitempty"`
-	Uptime    time.Duration     `json:"uptime_seconds"`
+	Status    Status           `json:"status"`
+	Timestamp time.Time        `json:"timestamp"`
+	Checks    map[string]Check `json:"checks,omitempty"`
+	Version   string           `json:"version,omitempty"`
+	Uptime    time.Duration    `json:"uptime_seconds"`
 }
 
 // Checker интерфейс для проверки здоровья компонента

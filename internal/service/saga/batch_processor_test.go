@@ -230,7 +230,7 @@ func TestBatchProcessor_MultipleBatches(t *testing.T) {
 
 	// Даём время на обработку всех батчей
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Останавливаем процессор и ждём завершения всех goroutines
 	bp.Stop()
 

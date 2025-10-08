@@ -59,7 +59,7 @@ func TestNewSagaMetrics(t *testing.T) {
 func TestRecordSagaStarted(t *testing.T) {
 	// Create isolated metrics with custom registry
 	reg := prometheus.NewRegistry()
-	
+
 	sagaStarted := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_saga_started_total",
 		Help: "Test counter",
@@ -68,9 +68,9 @@ func TestRecordSagaStarted(t *testing.T) {
 		Name: "test_active_sagas",
 		Help: "Test gauge",
 	})
-	
+
 	reg.MustRegister(sagaStarted, activeSagas)
-	
+
 	metrics := &SagaMetrics{
 		sagaStarted: sagaStarted,
 		activeSagas: activeSagas,
@@ -102,7 +102,7 @@ func TestRecordSagaStarted(t *testing.T) {
 
 func TestRecordSagaCanceled(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	sagaCanceled := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_saga_canceled_total",
 		Help: "Test counter",
@@ -111,9 +111,9 @@ func TestRecordSagaCanceled(t *testing.T) {
 		Name: "test_active_sagas_cancel",
 		Help: "Test gauge",
 	})
-	
+
 	reg.MustRegister(sagaCanceled, activeSagas)
-	
+
 	metrics := &SagaMetrics{
 		sagaCanceled: sagaCanceled,
 		activeSagas:  activeSagas,
@@ -148,7 +148,7 @@ func TestRecordSagaCanceled(t *testing.T) {
 
 func TestRecordSagaRefunded(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	sagaRefunded := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_saga_refunded_total",
 		Help: "Test counter",
@@ -157,9 +157,9 @@ func TestRecordSagaRefunded(t *testing.T) {
 		Name: "test_active_sagas_refund",
 		Help: "Test gauge",
 	})
-	
+
 	reg.MustRegister(sagaRefunded, activeSagas)
-	
+
 	metrics := &SagaMetrics{
 		sagaRefunded: sagaRefunded,
 		activeSagas:  activeSagas,
@@ -189,7 +189,7 @@ func TestRecordSagaRefunded(t *testing.T) {
 
 func TestRecordSagaCompleted(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	sagaCompleted := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_saga_completed_total",
 		Help: "Test counter",
@@ -198,9 +198,9 @@ func TestRecordSagaCompleted(t *testing.T) {
 		Name: "test_active_sagas_complete",
 		Help: "Test gauge",
 	})
-	
+
 	reg.MustRegister(sagaCompleted, activeSagas)
-	
+
 	metrics := &SagaMetrics{
 		sagaCompleted: sagaCompleted,
 		activeSagas:   activeSagas,
@@ -230,7 +230,7 @@ func TestRecordSagaCompleted(t *testing.T) {
 
 func TestRecordSagaFailed(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	sagaFailed := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_saga_failed_total",
 		Help: "Test counter",
@@ -239,9 +239,9 @@ func TestRecordSagaFailed(t *testing.T) {
 		Name: "test_active_sagas_fail",
 		Help: "Test gauge",
 	})
-	
+
 	reg.MustRegister(sagaFailed, activeSagas)
-	
+
 	metrics := &SagaMetrics{
 		sagaFailed:  sagaFailed,
 		activeSagas: activeSagas,
@@ -271,15 +271,15 @@ func TestRecordSagaFailed(t *testing.T) {
 
 func TestRecordSagaDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	sagaDuration := prometheus.NewHistogram(prometheus.HistogramOpts{
 		Name:    "test_saga_duration_seconds",
 		Help:    "Test histogram",
 		Buckets: prometheus.DefBuckets,
 	})
-	
+
 	reg.MustRegister(sagaDuration)
-	
+
 	metrics := &SagaMetrics{
 		sagaDuration: sagaDuration,
 	}
@@ -307,15 +307,15 @@ func TestRecordSagaDuration(t *testing.T) {
 
 func TestRecordStepDuration(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	stepDuration := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    "test_saga_step_duration_seconds",
 		Help:    "Test histogram vec",
 		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
 	}, []string{"step"})
-	
+
 	reg.MustRegister(stepDuration)
-	
+
 	metrics := &SagaMetrics{
 		stepDuration: stepDuration,
 	}
@@ -339,14 +339,14 @@ func TestRecordStepDuration(t *testing.T) {
 
 func TestRecordTimelineEvent(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	timelineEvents := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_timeline_events_total",
 		Help: "Test counter",
 	})
-	
+
 	reg.MustRegister(timelineEvents)
-	
+
 	metrics := &SagaMetrics{
 		timelineEvents: timelineEvents,
 	}
@@ -368,14 +368,14 @@ func TestRecordTimelineEvent(t *testing.T) {
 
 func TestRecordOutboxEvent(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	outboxEvents := prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_outbox_events_total",
 		Help: "Test counter",
 	})
-	
+
 	reg.MustRegister(outboxEvents)
-	
+
 	metrics := &SagaMetrics{
 		outboxEvents: outboxEvents,
 	}
@@ -396,7 +396,7 @@ func TestRecordOutboxEvent(t *testing.T) {
 
 func TestSagaLifecycle(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	
+
 	activeSagas := prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "test_saga_lifecycle_active",
 		Help: "Test gauge",
@@ -409,9 +409,9 @@ func TestSagaLifecycle(t *testing.T) {
 		Name: "test_saga_lifecycle_completed",
 		Help: "Test counter",
 	})
-	
+
 	reg.MustRegister(activeSagas, sagaStarted, sagaCompleted)
-	
+
 	metrics := &SagaMetrics{
 		activeSagas:   activeSagas,
 		sagaStarted:   sagaStarted,
@@ -422,7 +422,7 @@ func TestSagaLifecycle(t *testing.T) {
 	metrics.RecordSagaStarted() // active: 1
 	metrics.RecordSagaStarted() // active: 2
 	metrics.RecordSagaStarted() // active: 3
-	
+
 	metrics.RecordSagaCompleted() // active: 2
 	metrics.RecordSagaCompleted() // active: 1
 

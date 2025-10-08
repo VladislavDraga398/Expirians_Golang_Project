@@ -39,7 +39,7 @@ func NewRetryableOrchestrator(orchestrator Orchestrator, config RetryConfig, log
 	if logger == nil {
 		logger = log.New().WithField("component", "retryable-orchestrator")
 	}
-	
+
 	return &RetryableOrchestrator{
 		orchestrator: orchestrator,
 		config:       config,
@@ -74,7 +74,7 @@ func (ro *RetryableOrchestrator) Refund(orderID string, amountMinor int64, reaso
 func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn func() error) {
 	var lastErr error
 	delay := ro.config.InitialDelay
-	
+
 	for attempt := 1; attempt <= ro.config.MaxAttempts; attempt++ {
 		err := fn()
 		if err == nil {
@@ -87,9 +87,9 @@ func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn 
 			}
 			return
 		}
-		
+
 		lastErr = err
-		
+
 		// Проверяем, стоит ли повторять попытку
 		if !ro.shouldRetry(err) {
 			ro.logger.WithFields(log.Fields{
@@ -99,7 +99,7 @@ func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn 
 			}).Warn("Operation failed with non-retryable error")
 			return
 		}
-		
+
 		if attempt < ro.config.MaxAttempts {
 			ro.logger.WithFields(log.Fields{
 				"operation": operation,
@@ -108,9 +108,9 @@ func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn 
 				"delay":     delay,
 				"error":     err,
 			}).Warn("Operation failed, retrying")
-			
+
 			time.Sleep(delay)
-			
+
 			// Экспоненциальная задержка с ограничением
 			delay = time.Duration(float64(delay) * ro.config.BackoffFactor)
 			if delay > ro.config.MaxDelay {
@@ -118,7 +118,7 @@ func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn 
 			}
 		}
 	}
-	
+
 	ro.logger.WithFields(log.Fields{
 		"operation":    operation,
 		"order_id":     orderID,
@@ -134,13 +134,13 @@ func (ro *RetryableOrchestrator) shouldRetry(err error) bool {
 		errors.Is(err, domain.ErrOrderVersionConflict) {
 		return false
 	}
-	
+
 	// Повторяем при временных ошибках сети, базы данных и т.д.
 	if errors.Is(err, domain.ErrInventoryUnavailable) ||
 		errors.Is(err, domain.ErrPaymentDeclined) {
 		return true
 	}
-	
+
 	// По умолчанию повторяем неизвестные ошибки
 	return true
 }
@@ -149,7 +149,7 @@ func (ro *RetryableOrchestrator) shouldRetry(err error) bool {
 type CircuitBreaker struct {
 	maxFailures  int
 	resetTimeout time.Duration
-	
+
 	failures    int
 	lastFailure time.Time
 	state       CircuitState
@@ -169,7 +169,7 @@ func NewCircuitBreaker(maxFailures int, resetTimeout time.Duration, logger *log.
 	if logger == nil {
 		logger = log.New().WithField("component", "circuit-breaker")
 	}
-	
+
 	return &CircuitBreaker{
 		maxFailures:  maxFailures,
 		resetTimeout: resetTimeout,
@@ -188,13 +188,13 @@ func (cb *CircuitBreaker) Execute(operation string, fn func() error) error {
 			return errors.New("circuit breaker is open")
 		}
 	}
-	
+
 	err := fn()
-	
+
 	if err != nil {
 		cb.failures++
 		cb.lastFailure = time.Now()
-		
+
 		if cb.state == CircuitHalfOpen || cb.failures >= cb.maxFailures {
 			cb.state = CircuitOpen
 			cb.logger.WithFields(log.Fields{
@@ -202,17 +202,17 @@ func (cb *CircuitBreaker) Execute(operation string, fn func() error) error {
 				"failures":  cb.failures,
 			}).Warn("Circuit breaker opened")
 		}
-		
+
 		return err
 	}
-	
+
 	// Успешное выполнение - сбрасываем счётчик
 	if cb.state == CircuitHalfOpen {
 		cb.state = CircuitClosed
 		cb.logger.WithField("operation", operation).Info("Circuit breaker closed")
 	}
 	cb.failures = 0
-	
+
 	return nil
 }
 
@@ -238,7 +238,7 @@ func (cbo *CircuitBreakerOrchestrator) Start(orderID string) {
 		cbo.orchestrator.Start(orderID)
 		return nil
 	})
-	
+
 	if err != nil {
 		cbo.logger.WithFields(log.Fields{
 			"order_id": orderID,
@@ -253,7 +253,7 @@ func (cbo *CircuitBreakerOrchestrator) Cancel(orderID, reason string) {
 		cbo.orchestrator.Cancel(orderID, reason)
 		return nil
 	})
-	
+
 	if err != nil {
 		cbo.logger.WithFields(log.Fields{
 			"order_id": orderID,
@@ -269,7 +269,7 @@ func (cbo *CircuitBreakerOrchestrator) Refund(orderID string, amountMinor int64,
 		cbo.orchestrator.Refund(orderID, amountMinor, reason)
 		return nil
 	})
-	
+
 	if err != nil {
 		cbo.logger.WithFields(log.Fields{
 			"order_id":     orderID,

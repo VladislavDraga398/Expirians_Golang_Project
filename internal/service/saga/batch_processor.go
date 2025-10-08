@@ -12,18 +12,18 @@ import (
 type BatchProcessor struct {
 	orchestrator Orchestrator
 	logger       *log.Entry
-	
+
 	// Конфигурация батчинга
 	batchSize    int
 	flushTimeout time.Duration
-	
+
 	// Внутренние каналы и состояние
-	startCh   chan string
-	cancelCh  chan cancelRequest
-	refundCh  chan refundRequest
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
-	
+	startCh  chan string
+	cancelCh chan cancelRequest
+	refundCh chan refundRequest
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+
 	// Буферы для батчинга
 	startBatch  []string
 	cancelBatch []cancelRequest
@@ -47,11 +47,11 @@ func NewBatchProcessor(orchestrator Orchestrator, logger *log.Entry) *BatchProce
 	if logger == nil {
 		logger = log.New().WithField("component", "batch-processor")
 	}
-	
+
 	return &BatchProcessor{
 		orchestrator: orchestrator,
 		logger:       logger,
-		batchSize:    10,  // Обрабатываем по 10 операций за раз
+		batchSize:    10,                     // Обрабатываем по 10 операций за раз
 		flushTimeout: 100 * time.Millisecond, // Или каждые 100мс
 		startCh:      make(chan string, 100),
 		cancelCh:     make(chan cancelRequest, 100),
@@ -63,12 +63,12 @@ func NewBatchProcessor(orchestrator Orchestrator, logger *log.Entry) *BatchProce
 // Start запускает батч-процессор.
 func (bp *BatchProcessor) Start(ctx context.Context) {
 	bp.wg.Add(3)
-	
+
 	// Запускаем воркеры для каждого типа операций
 	go bp.processStartBatch(ctx)
 	go bp.processCancelBatch(ctx)
 	go bp.processRefundBatch(ctx)
-	
+
 	bp.logger.Info("Batch processor started")
 }
 
@@ -112,10 +112,10 @@ func (bp *BatchProcessor) RefundOrder(orderID string, amountMinor int64, reason 
 
 func (bp *BatchProcessor) processStartBatch(ctx context.Context) {
 	defer bp.wg.Done()
-	
+
 	ticker := time.NewTicker(bp.flushTimeout)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -129,7 +129,7 @@ func (bp *BatchProcessor) processStartBatch(ctx context.Context) {
 			bp.startBatch = append(bp.startBatch, orderID)
 			shouldFlush := len(bp.startBatch) >= bp.batchSize
 			bp.mu.Unlock()
-			
+
 			if shouldFlush {
 				bp.flushStartBatch()
 			}
@@ -141,10 +141,10 @@ func (bp *BatchProcessor) processStartBatch(ctx context.Context) {
 
 func (bp *BatchProcessor) processCancelBatch(ctx context.Context) {
 	defer bp.wg.Done()
-	
+
 	ticker := time.NewTicker(bp.flushTimeout)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -158,7 +158,7 @@ func (bp *BatchProcessor) processCancelBatch(ctx context.Context) {
 			bp.cancelBatch = append(bp.cancelBatch, req)
 			shouldFlush := len(bp.cancelBatch) >= bp.batchSize
 			bp.mu.Unlock()
-			
+
 			if shouldFlush {
 				bp.flushCancelBatch()
 			}
@@ -170,10 +170,10 @@ func (bp *BatchProcessor) processCancelBatch(ctx context.Context) {
 
 func (bp *BatchProcessor) processRefundBatch(ctx context.Context) {
 	defer bp.wg.Done()
-	
+
 	ticker := time.NewTicker(bp.flushTimeout)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -187,7 +187,7 @@ func (bp *BatchProcessor) processRefundBatch(ctx context.Context) {
 			bp.refundBatch = append(bp.refundBatch, req)
 			shouldFlush := len(bp.refundBatch) >= bp.batchSize
 			bp.mu.Unlock()
-			
+
 			if shouldFlush {
 				bp.flushRefundBatch()
 			}
@@ -202,13 +202,13 @@ func (bp *BatchProcessor) flushStartBatch() {
 	batch := bp.startBatch
 	bp.startBatch = nil
 	bp.mu.Unlock()
-	
+
 	if len(batch) == 0 {
 		return
 	}
-	
+
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing start batch")
-	
+
 	// Обрабатываем все заказы в батче параллельно
 	var wg sync.WaitGroup
 	for _, orderID := range batch {
@@ -226,13 +226,13 @@ func (bp *BatchProcessor) flushCancelBatch() {
 	batch := bp.cancelBatch
 	bp.cancelBatch = nil
 	bp.mu.Unlock()
-	
+
 	if len(batch) == 0 {
 		return
 	}
-	
+
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing cancel batch")
-	
+
 	var wg sync.WaitGroup
 	for _, req := range batch {
 		wg.Add(1)
@@ -249,13 +249,13 @@ func (bp *BatchProcessor) flushRefundBatch() {
 	batch := bp.refundBatch
 	bp.refundBatch = nil
 	bp.mu.Unlock()
-	
+
 	if len(batch) == 0 {
 		return
 	}
-	
+
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing refund batch")
-	
+
 	var wg sync.WaitGroup
 	for _, req := range batch {
 		wg.Add(1)

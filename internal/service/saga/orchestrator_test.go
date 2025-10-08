@@ -153,7 +153,7 @@ func TestOrchestrator_SuccessFlow(t *testing.T) {
 	if updated.Status != domain.OrderStatusConfirmed {
 		t.Fatalf("expected final status %s, got %s", domain.OrderStatusConfirmed, updated.Status)
 	}
-	
+
 	// Проверяем, что есть события статуса (количество может варьироваться)
 	if len(events) == 0 {
 		t.Fatal("expected at least one status event")

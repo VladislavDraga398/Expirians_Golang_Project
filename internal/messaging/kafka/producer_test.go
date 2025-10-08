@@ -12,7 +12,7 @@ import (
 func TestProducer_PublishEvent(t *testing.T) {
 	// Создаем mock producer
 	mockProducer := mocks.NewSyncProducer(t, nil)
-	
+
 	producer := &Producer{
 		producer: mockProducer,
 		logger:   log.WithField("component", "kafka-producer-test"),
@@ -45,7 +45,7 @@ func TestProducer_PublishEvent(t *testing.T) {
 func TestProducer_PublishEvent_Error(t *testing.T) {
 	// Создаем mock producer с ошибкой
 	mockProducer := mocks.NewSyncProducer(t, nil)
-	
+
 	producer := &Producer{
 		producer: mockProducer,
 		logger:   log.WithField("component", "kafka-producer-test"),

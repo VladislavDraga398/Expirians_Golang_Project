@@ -26,17 +26,17 @@ const (
 
 // Topics для Kafka
 const (
-	TopicSagaEvents     = "oms.saga.events"
-	TopicOrderEvents    = "oms.order.events"
-	TopicDeadLetterQueue = "oms.dlq"  // Dead Letter Queue для failed messages
+	TopicSagaEvents      = "oms.saga.events"
+	TopicOrderEvents     = "oms.order.events"
+	TopicDeadLetterQueue = "oms.dlq" // Dead Letter Queue для failed messages
 )
 
 // Kafka headers для retry логики
 const (
-	HeaderRetryCount = "x-retry-count"
+	HeaderRetryCount    = "x-retry-count"
 	HeaderOriginalTopic = "x-original-topic"
-	HeaderErrorMessage = "x-error-message"
-	HeaderFailedAt = "x-failed-at"
+	HeaderErrorMessage  = "x-error-message"
+	HeaderFailedAt      = "x-failed-at"
 )
 
 // SagaEvent представляет событие саги

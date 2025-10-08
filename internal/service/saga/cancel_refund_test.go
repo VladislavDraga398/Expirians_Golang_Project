@@ -140,7 +140,7 @@ func TestOrchestrator_Cancel_OrderNotFound(t *testing.T) {
 	pay := &stubPayment{}
 
 	orch := NewOrchestratorWithoutMetrics(repo, outbox, timeline, inv, pay, nil)
-	
+
 	// Try to cancel non-existent order
 	orch.Cancel("non-existent", "test")
 
@@ -268,7 +268,7 @@ func TestOrchestrator_Refund_OrderNotFound(t *testing.T) {
 	pay := &stubPayment{}
 
 	orch := NewOrchestratorWithoutMetrics(repo, outbox, timeline, inv, pay, nil)
-	
+
 	// Try to refund non-existent order
 	orch.Refund("non-existent", 100, "test")
 
@@ -289,7 +289,7 @@ func TestOrchestrator_Refund_PartialAmount(t *testing.T) {
 	order := seedOrder(t, repo, domain.OrderStatusConfirmed)
 
 	orch := NewOrchestratorWithoutMetrics(repo, outbox, timeline, inv, pay, nil)
-	
+
 	// Refund partial amount (50 out of 100)
 	orch.Refund(order.ID, 50, "partial refund")
 

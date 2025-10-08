@@ -9,7 +9,7 @@ import (
 
 // timelineRepositoryInMemory хранит события в памяти (для разработки/тестов).
 type timelineRepositoryInMemory struct {
-	mu      sync.RWMutex
+	mu     sync.RWMutex
 	events map[string][]domain.TimelineEvent
 }
 

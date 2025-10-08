@@ -20,12 +20,12 @@ import (
 
 	healthcheck "github.com/vladislavdragonenkov/oms/internal/health"
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
-	"github.com/vladislavdragonenkov/oms/internal/version"
 	grpcsvc "github.com/vladislavdragonenkov/oms/internal/service/grpc"
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
 	"github.com/vladislavdragonenkov/oms/internal/service/saga"
 	"github.com/vladislavdragonenkov/oms/internal/storage/memory"
+	"github.com/vladislavdragonenkov/oms/internal/version"
 	omsv1 "github.com/vladislavdragonenkov/oms/proto/oms/v1"
 )
 
@@ -52,11 +52,11 @@ func Run(ctx context.Context, cfg Config) error {
 	// In production, replace with real inventory and payment service clients
 	inventorySvc := inventory.NewMockService()
 	paymentSvc := payment.NewMockService()
-	
+
 	// Инициализация Kafka producer (опционально)
 	var kafkaProducer *kafka.Producer
 	var sagaOrchestrator saga.Orchestrator
-	
+
 	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
 	if kafkaBrokers != "" {
 		brokers := strings.Split(kafkaBrokers, ",")
@@ -66,7 +66,7 @@ func Run(ctx context.Context, cfg Config) error {
 		} else {
 			kafkaProducer = producer
 			logger.WithField("brokers", brokers).Info("kafka producer initialized")
-			
+
 			// Создаём orchestrator с Kafka
 			sagaOrchestrator = saga.NewOrchestratorWithKafka(
 				repo,
@@ -79,7 +79,7 @@ func Run(ctx context.Context, cfg Config) error {
 			)
 		}
 	}
-	
+
 	// Если Kafka не настроен, используем обычный orchestrator
 	if sagaOrchestrator == nil {
 		sagaOrchestrator = saga.NewOrchestrator(
@@ -106,7 +106,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 	}
 
-omsv1.RegisterOrderServiceServer(grpcServer, orderService)
+	omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 	grpcMetrics.InitializeMetrics(grpcServer)
 
 	// Register reflection service for grpcurl and load testing tools
@@ -151,7 +151,7 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 			grpcServer.Stop()
 		}
 		shutdownHTTP(metricsSrv, logger)
-		
+
 		// Закрываем Kafka producer
 		if kafkaProducer != nil {
 			if err := kafkaProducer.Close(); err != nil {
@@ -160,18 +160,18 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 				logger.Info("kafka producer closed")
 			}
 		}
-		
+
 		return ctx.Err()
 	case err := <-errCh:
 		shutdownHTTP(metricsSrv, logger)
-		
+
 		// Закрываем Kafka producer
 		if kafkaProducer != nil {
 			if closeErr := kafkaProducer.Close(); closeErr != nil {
 				logger.WithError(closeErr).Warn("failed to close kafka producer")
 			}
 		}
-		
+
 		if errors.Is(err, grpc.ErrServerStopped) {
 			return nil
 		}
@@ -181,13 +181,13 @@ omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 
 // startMetricsServer запускает HTTP-обработчик /metrics для Prometheus.
 func startMetricsServer(ctx context.Context, addr string, logger *log.Entry, healthHandler http.Handler) *http.Server {
-    mux := http.NewServeMux()
-    mux.Handle("/metrics", promhttp.Handler())
-    mux.Handle("/healthz", healthHandler)
-    mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
-        w.WriteHeader(http.StatusOK)
-        _, _ = w.Write([]byte("ok"))
-    })
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.Handle("/healthz", healthHandler)
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 	go func() {
