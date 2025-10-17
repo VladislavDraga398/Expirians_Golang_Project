@@ -1,24 +1,80 @@
 run:
   timeout: 5m
- 
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Основные линтеры для стабильной работы CI
+    - errcheck      # необработанные ошибки
+    - gosimple      # упрощение кода
+    - govet         # официальный go vet
+    - ineffassign   # неиспользуемые присваивания
+    - staticcheck   # статический анализ
+    - typecheck     # проверка типов
+    - unused        # неиспользуемый код
+    - gofmt         # форматирование
+    - revive        # стиль кода (замена golint)
+    - gosec         # безопасность кода
+    
+  disable:
+    - deadcode      # deprecated
+    - varcheck      # deprecated  
+    - structcheck   # deprecated
+    - maligned      # deprecated
+    - scopelint     # deprecated
+    - interfacer    # deprecated
+    - golint        # deprecated
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+
+  revive:
+    rules:
+      - name: exported
+        disabled: true  # отключаем требования комментариев к публичным функциям для начала
+      - name: unused-parameter
+      - name: var-naming
+      - name: increment-decrement
+      - name: range-val-in-closure
+      - name: indent-error-flow
+      - name: superfluous-else
+      - name: unreachable-code
+
+  gosec:
+    severity: medium
+    confidence: medium
+
 issues:
   exclude-dirs:
     - "^github\\.com($|/)"
     - "^bin($|/)"
+    - "^vendor($|/)"
+  
   exclude-files:
     - "proto/oms/v1/.*\\.pb\\.go$"
+    - ".*\\.pb\\.gw\\.go$"
+    - ".*_mock\\.go$"
+    - ".*mock.*\\.go$"
+  
+  exclude-rules:
+    # Послабления для тестов
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        
+    # Исключаем известные false positives
+    - text: "weak cryptographic primitive"
+      linters:
+        - gosec
+    
+    # Исключаем shadow проверки для err в type switch
+    - text: "shadow: declaration of \"err\" shadows declaration"
+      linters:
+        - govet
 
-linters:
-  enable:
-    - govet
-    - staticcheck
-    - gosimple
-    - ineffassign
-    - typecheck
-    - unused
-    - errcheck
-    - gofmt
-
-linters-settings:
-  gofmt:
-    simplify: true
+  max-issues-per-linter: 20
+  max-same-issues: 5
