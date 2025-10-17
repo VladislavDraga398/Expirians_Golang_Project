@@ -1,9 +1,11 @@
 run:
   timeout: 5m
-  skip-dirs:
+ 
+issues:
+  exclude-dirs:
     - "^github\\.com($|/)"
     - "^bin($|/)"
-  skip-files:
+  exclude-files:
     - "proto/oms/v1/.*\\.pb\\.go$"
 
 linters:
