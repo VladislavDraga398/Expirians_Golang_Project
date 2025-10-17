@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.24'
-  GOLANGCI_LINT_VERSION: latest
+  GO_VERSION: '1.24.x'
+  GOLANGCI_LINT_VERSION: v1.59.1
 
 jobs:
   # ========================================================================

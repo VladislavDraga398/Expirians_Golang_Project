@@ -1,0 +1,22 @@
+run:
+  timeout: 5m
+  skip-dirs:
+    - "^github\\.com($|/)"
+    - "^bin($|/)"
+  skip-files:
+    - "proto/oms/v1/.*\\.pb\\.go$"
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gosimple
+    - ineffassign
+    - typecheck
+    - unused
+    - errcheck
+    - gofmt
+
+linters-settings:
+  gofmt:
+    simplify: true
