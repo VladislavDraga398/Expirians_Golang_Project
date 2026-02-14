@@ -10,7 +10,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
@@ -22,12 +25,16 @@ import (
 
 const bufSize = 1024 * 1024
 
+func idemCtx(key string) context.Context {
+	return metadata.AppendToOutgoingContext(context.Background(), "idempotency-key", key)
+}
+
 func newTestServer() (*grpc.ClientConn, func(), error) {
 	listener := bufconn.Listen(bufSize)
 	repo := memory.NewOrderRepository()
 	logger := loggerForTests()
 	orchestrator := saga.NewNoop(logger.WithField("layer", "saga"))
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), orchestrator, logger)
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), orchestrator, logger)
 
 	server := grpc.NewServer()
 	omsv1.RegisterOrderServiceServer(server, service)
@@ -81,7 +88,7 @@ func (s *stubOrchestrator) Start(orderID string) {
 	s.started = append(s.started, orderID)
 }
 
-func (s *stubOrchestrator) Cancel(orderID, reason string) {
+func (s *stubOrchestrator) Cancel(orderID, _ string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.canceled = append(s.canceled, orderID)
@@ -130,6 +137,30 @@ func (s *stubOrchestrator) getRefunds() []struct {
 	return result
 }
 
+type blockingOrchestrator struct {
+	startCalled chan struct{}
+	release     chan struct{}
+}
+
+func newBlockingOrchestrator() *blockingOrchestrator {
+	return &blockingOrchestrator{
+		startCalled: make(chan struct{}, 1),
+		release:     make(chan struct{}),
+	}
+}
+
+func (b *blockingOrchestrator) Start(string) {
+	select {
+	case b.startCalled <- struct{}{}:
+	default:
+	}
+	<-b.release
+}
+
+func (b *blockingOrchestrator) Cancel(string, string) {}
+
+func (b *blockingOrchestrator) Refund(string, int64, string) {}
+
 func seedOrder(t *testing.T, repo domain.OrderRepository, status domain.OrderStatus) domain.Order {
 	t.Helper()
 
@@ -165,7 +196,7 @@ func TestOrderService_CreateAndGet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resp, err := client.CreateOrder(ctx, &omsv1.CreateOrderRequest{
+	resp, err := client.CreateOrder(metadata.AppendToOutgoingContext(ctx, "idempotency-key", "create-order-1"), &omsv1.CreateOrderRequest{
 		CustomerId: "customer-1",
 		Currency:   "USD",
 		Items: []*omsv1.OrderItem{
@@ -191,13 +222,104 @@ func TestOrderService_CreateAndGet(t *testing.T) {
 	require.Equal(t, resp.Order.Amount.AmountMinor, getResp.Order.Amount.AmountMinor)
 }
 
+func TestOrderService_CreateOrder_RequiresIdempotencyKey(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), nil, loggerForTests())
+
+	_, err := service.CreateOrder(context.Background(), &omsv1.CreateOrderRequest{
+		CustomerId: "customer-1",
+		Currency:   "USD",
+		Items: []*omsv1.OrderItem{
+			{
+				Sku: "sku-1",
+				Qty: 1,
+				Price: &omsv1.Money{
+					Currency:    "USD",
+					AmountMinor: 100,
+				},
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestOrderService_CreateOrder_IdempotentReplay(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), nil, loggerForTests())
+
+	req := &omsv1.CreateOrderRequest{
+		CustomerId: "customer-1",
+		Currency:   "USD",
+		Items: []*omsv1.OrderItem{
+			{
+				Sku: "sku-1",
+				Qty: 1,
+				Price: &omsv1.Money{
+					Currency:    "USD",
+					AmountMinor: 100,
+				},
+			},
+		},
+	}
+
+	first, err := service.CreateOrder(idemCtx("create-replay-1"), req)
+	require.NoError(t, err)
+	second, err := service.CreateOrder(idemCtx("create-replay-1"), req)
+	require.NoError(t, err)
+
+	require.Equal(t, first.Order.Id, second.Order.Id)
+
+	orders, err := repo.ListByCustomer("customer-1", 10)
+	require.NoError(t, err)
+	require.Len(t, orders, 1)
+}
+
+func TestOrderService_CreateOrder_IdempotencyHashMismatch(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), nil, loggerForTests())
+
+	_, err := service.CreateOrder(idemCtx("create-replay-2"), &omsv1.CreateOrderRequest{
+		CustomerId: "customer-1",
+		Currency:   "USD",
+		Items: []*omsv1.OrderItem{
+			{
+				Sku: "sku-1",
+				Qty: 1,
+				Price: &omsv1.Money{
+					Currency:    "USD",
+					AmountMinor: 100,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = service.CreateOrder(idemCtx("create-replay-2"), &omsv1.CreateOrderRequest{
+		CustomerId: "customer-1",
+		Currency:   "USD",
+		Items: []*omsv1.OrderItem{
+			{
+				Sku: "sku-2",
+				Qty: 2,
+				Price: &omsv1.Money{
+					Currency:    "USD",
+					AmountMinor: 100,
+				},
+			},
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+}
+
 func TestOrderService_PayOrder(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusPending)
 	stub := &stubOrchestrator{}
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), stub, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), stub, loggerForTests())
 
-	resp, err := service.PayOrder(context.Background(), &omsv1.PayOrderRequest{OrderId: "order-1"})
+	resp, err := service.PayOrder(idemCtx("pay-order-1"), &omsv1.PayOrderRequest{OrderId: "order-1"})
 	require.NoError(t, err)
 	require.Equal(t, "order-1", resp.OrderId)
 	require.Equal(t, omsv1.OrderStatus_ORDER_STATUS_PENDING, resp.Status)
@@ -210,9 +332,9 @@ func TestOrderService_PayOrder(t *testing.T) {
 func TestOrderService_CancelOrder(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusReserved)
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), nil, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), nil, loggerForTests())
 
-	resp, err := service.CancelOrder(context.Background(), &omsv1.CancelOrderRequest{OrderId: "order-1", Reason: "customer request"})
+	resp, err := service.CancelOrder(idemCtx("cancel-order-1"), &omsv1.CancelOrderRequest{OrderId: "order-1", Reason: "customer request"})
 	require.NoError(t, err)
 	require.Equal(t, omsv1.OrderStatus_ORDER_STATUS_CANCELED, resp.Status)
 
@@ -225,9 +347,9 @@ func TestOrderService_CancelOrder(t *testing.T) {
 func TestOrderService_RefundOrder(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusConfirmed)
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), nil, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), nil, loggerForTests())
 
-	resp, err := service.RefundOrder(context.Background(), &omsv1.RefundOrderRequest{OrderId: "order-1"})
+	resp, err := service.RefundOrder(idemCtx("refund-order-1"), &omsv1.RefundOrderRequest{OrderId: "order-1"})
 	require.NoError(t, err)
 	require.Equal(t, omsv1.OrderStatus_ORDER_STATUS_REFUNDED, resp.Status)
 
@@ -241,9 +363,9 @@ func TestOrderService_CancelOrder_TriggersSaga(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusConfirmed)
 	stub := &stubOrchestrator{}
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), stub, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), stub, loggerForTests())
 
-	_, err := service.CancelOrder(context.Background(), &omsv1.CancelOrderRequest{OrderId: "order-1", Reason: "customer"})
+	_, err := service.CancelOrder(idemCtx("cancel-order-2"), &omsv1.CancelOrderRequest{OrderId: "order-1", Reason: "customer"})
 	require.NoError(t, err)
 
 	// Даём время для асинхронного вызова
@@ -255,9 +377,9 @@ func TestOrderService_RefundOrder_TriggersSaga(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusPaid)
 	stub := &stubOrchestrator{}
-	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), stub, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), stub, loggerForTests())
 
-	_, err := service.RefundOrder(context.Background(), &omsv1.RefundOrderRequest{OrderId: "order-1", Amount: &omsv1.Money{AmountMinor: 50}})
+	_, err := service.RefundOrder(idemCtx("refund-order-2"), &omsv1.RefundOrderRequest{OrderId: "order-1", Amount: &omsv1.Money{AmountMinor: 50}})
 	require.NoError(t, err)
 
 	// Даём время для асинхронного вызова
@@ -272,7 +394,7 @@ func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	timeline := memory.NewTimelineRepository()
 	seedOrder(t, repo, domain.OrderStatusConfirmed)
-	service := grpcsvc.NewOrderService(repo, timeline, nil, loggerForTests())
+	service := grpcsvc.NewOrderService(repo, timeline, memory.NewIdempotencyRepository(), nil, loggerForTests())
 
 	// Добавляем события в timeline вручную для теста
 	_ = timeline.Append(domain.TimelineEvent{
@@ -300,4 +422,61 @@ func TestOrderService_GetOrder_WithTimeline(t *testing.T) {
 	require.Equal(t, "pending", resp.Timeline[0].Reason)
 	require.Equal(t, "OrderStatusChanged", resp.Timeline[1].Type)
 	require.Equal(t, "confirmed", resp.Timeline[1].Reason)
+}
+
+func TestOrderService_Shutdown_WaitsForSaga(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	seedOrder(t, repo, domain.OrderStatusPending)
+
+	orch := newBlockingOrchestrator()
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), orch, loggerForTests())
+
+	_, err := service.PayOrder(idemCtx("pay-order-shutdown"), &omsv1.PayOrderRequest{OrderId: "order-1"})
+	require.NoError(t, err)
+
+	select {
+	case <-orch.startCalled:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected saga to start")
+	}
+
+	shutdownResult := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		shutdownResult <- service.Shutdown(ctx)
+	}()
+
+	select {
+	case err := <-shutdownResult:
+		t.Fatalf("shutdown should wait for saga completion, got early result: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(orch.release)
+
+	select {
+	case err := <-shutdownResult:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("shutdown did not finish after saga completion")
+	}
+}
+
+func TestOrderService_Shutdown_SkipsNewSagaDispatch(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	seedOrder(t, repo, domain.OrderStatusPending)
+
+	stub := &stubOrchestrator{}
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), stub, loggerForTests())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.NoError(t, service.Shutdown(ctx))
+
+	_, err := service.PayOrder(idemCtx("pay-order-shutdown-skip"), &omsv1.PayOrderRequest{OrderId: "order-1"})
+	require.NoError(t, err)
+
+	time.Sleep(20 * time.Millisecond)
+	require.Empty(t, stub.getStarted())
 }

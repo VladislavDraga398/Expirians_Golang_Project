@@ -1,16 +1,16 @@
-# ⚡ Quick Start Guide
+# Quick Start Guide
 
 Запустите OMS за **5 минут**!
 
 ---
 
-## 📋 Предварительные требования
+## Предварительные требования
 
 Убедитесь, что установлено:
 
 ```bash
 # Проверить версии
-go version        # Go 1.21+
+go version        # Go 1.24+
 docker --version  # Docker 20.10+
 make --version    # GNU Make
 ```
@@ -22,7 +22,7 @@ make --version    # GNU Make
 
 ---
 
-## 🚀 Шаг 1: Клонирование и зависимости (1 мин)
+## Шаг 1: Клонирование и зависимости (1 мин)
 
 ```bash
 # Клонировать репозиторий
@@ -35,7 +35,7 @@ make deps
 
 ---
 
-## 🐳 Шаг 2: Запуск инфраструктуры (2 мин)
+## Шаг 2: Запуск инфраструктуры (2 мин)
 
 ```bash
 # Запустить Kafka, Prometheus, Grafana
@@ -46,20 +46,35 @@ make wait-health
 ```
 
 **Что запустилось:**
-- ✅ Kafka (localhost:9092)
-- ✅ Zookeeper (localhost:2181)
-- ✅ Prometheus (http://localhost:9091)
-- ✅ Grafana (http://localhost:3000)
+- Kafka (localhost:9092)
+- Zookeeper (localhost:2181)
+- Prometheus (http://localhost:9091)
+- Grafana (http://localhost:3000)
+- Postgres (localhost:5432, опционально для режима `OMS_STORAGE_DRIVER=postgres`)
 
 ---
 
-## 🏃 Шаг 3: Запуск сервиса (1 мин)
+## Шаг 3: Запуск сервиса (1 мин)
 
 ### Вариант A: Локально (для разработки)
 
 ```bash
 # Собрать и запустить
 make build
+make run
+```
+
+### Вариант A2: Локально с PostgreSQL storage
+
+```bash
+export OMS_STORAGE_DRIVER=postgres
+export OMS_POSTGRES_DSN='postgres://oms:oms@localhost:5432/oms?sslmode=disable'
+export OMS_POSTGRES_AUTO_MIGRATE=true
+
+# (опционально) руками прогнать миграции
+make migrate-up
+make migrate-status
+
 make run
 ```
 
@@ -72,13 +87,13 @@ make docker-run
 ```
 
 **Сервис запущен на:**
-- 🔌 gRPC: `localhost:50051`
-- 📊 Metrics: `http://localhost:9090/metrics`
-- 🏥 Health: `http://localhost:9090/healthz`
+- gRPC: `localhost:50051`
+- Metrics: `http://localhost:9090/metrics`
+- Health: `http://localhost:9090/healthz`
 
 ---
 
-## ✅ Шаг 4: Проверка (1 мин)
+## Шаг 4: Проверка (1 мин)
 
 ### Проверить health
 
@@ -128,7 +143,7 @@ grpcurl -plaintext -d '{
 
 ---
 
-## 🎬 Бонус: Запустить демо (опционально)
+## Бонус: Запустить демо (опционально)
 
 ```bash
 # Полный демо-сценарий
@@ -142,7 +157,7 @@ open http://localhost:3000
 
 ---
 
-## 🧪 Запустить тесты
+## Запустить тесты
 
 ```bash
 # Все тесты
@@ -157,7 +172,7 @@ make cover
 
 ---
 
-## 🛑 Остановка
+## Остановка
 
 ```bash
 # Остановить сервис
@@ -172,26 +187,26 @@ make clean-all
 
 ---
 
-## 📚 Что дальше?
+## Что дальше?
 
 ### Для разработчиков
-1. **[API Examples](API_EXAMPLES.md)** - все операции с примерами
-2. **[Makefile Guide](MAKEFILE_GUIDE.md)** - все доступные команды
-3. **[Architecture](architecture.md)** - как устроена система
+1. **[API Examples](guides/api-examples.md)** - все операции с примерами
+2. **[Makefile Guide](guides/makefile.md)** - все доступные команды
+3. **[Architecture Overview](architecture/overview.md)** - как устроена система
 
 ### Для DevOps
 1. **[Kubernetes Deployment](../deploy/k8s/README.md)** - деплой в K8s
 2. **[Helm Chart](../deploy/helm/oms/README.md)** - Helm guide
-3. **[CI/CD](CI_CD.md)** - автоматизация
+3. **[CI/CD](guides/ci-cd.md)** - автоматизация
 
 ### Для изучения
-1. **[Saga Pattern](saga.md)** - распределённые транзакции
-2. **[Kafka Integration](KAFKA_INTEGRATION.md)** - Event-Driven Architecture
-3. **[ADR Index](adr/INDEX.md)** - архитектурные решения
+1. **[Saga Pattern](architecture/saga.md)** - распределённые транзакции
+2. **[Kafka Integration](guides/kafka.md)** - Event-Driven Architecture
+3. **[ADR Index](decisions/adr/INDEX.md)** - архитектурные решения
 
 ---
 
-## ❓ Troubleshooting
+## Troubleshooting
 
 ### Порты заняты
 
@@ -240,7 +255,7 @@ make test-v
 
 ---
 
-## 🎯 Полезные команды
+## Полезные команды
 
 ```bash
 # Показать все команды
@@ -262,15 +277,15 @@ make bench               # Бенчмарки
 
 ---
 
-## 📞 Нужна помощь?
+## Нужна помощь?
 
 - **Документация:** [INDEX.md](INDEX.md)
-- **API примеры:** [API_EXAMPLES.md](API_EXAMPLES.md)
+- **API примеры:** [guides/api-examples.md](guides/api-examples.md)
 - **Issues:** https://github.com/vladislavdragonenkov/oms/issues
 
 ---
 
-**🎉 Готово! Проект запущен!**
+** Готово! Проект запущен!**
 
 **Время:** ~5 минут  
-**Следующий шаг:** [API Examples](API_EXAMPLES.md)
+**Следующий шаг:** [API Examples](guides/api-examples.md)

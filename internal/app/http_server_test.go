@@ -79,6 +79,18 @@ func TestStartMetricsServer_Endpoints(t *testing.T) {
 		t.Errorf("expected 'ok' from /livez, got '%s'", string(body3))
 	}
 
+	// Проверяем /readyz
+	readyzURL := fmt.Sprintf("http://localhost:%d/readyz", port)
+	resp4, err := http.Get(readyzURL)
+	if err != nil {
+		t.Fatalf("failed to get /readyz: %v", err)
+	}
+	defer resp4.Body.Close()
+
+	if resp4.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200 for /readyz, got %d", resp4.StatusCode)
+	}
+
 	// Cleanup
 	cancel()
 	time.Sleep(100 * time.Millisecond)
@@ -128,7 +140,7 @@ func TestStartMetricsServer_Shutdown(t *testing.T) {
 	}
 }
 
-func TestShutdownHTTP_NilServer(t *testing.T) {
+func TestShutdownHTTP_NilServer(_ *testing.T) {
 	logger := log.WithField("test", "http-nil")
 
 	// Не должно паниковать
@@ -142,7 +154,7 @@ func TestShutdownHTTP_WithServer(t *testing.T) {
 	addr := fmt.Sprintf(":%d", port)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/test", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("test"))
 	})
@@ -220,6 +232,7 @@ func TestStartMetricsServer_MultipleEndpoints(t *testing.T) {
 		fmt.Sprintf("http://localhost:%d/metrics", port),
 		fmt.Sprintf("http://localhost:%d/healthz", port),
 		fmt.Sprintf("http://localhost:%d/livez", port),
+		fmt.Sprintf("http://localhost:%d/readyz", port),
 	}
 
 	for _, url := range endpoints {

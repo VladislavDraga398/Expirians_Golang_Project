@@ -2,6 +2,7 @@ package app
 
 import (
 	"testing"
+	"time"
 )
 
 func TestDefaultConfig_Values(t *testing.T) {
@@ -14,12 +15,43 @@ func TestDefaultConfig_Values(t *testing.T) {
 	if cfg.MetricsAddr != ":9090" {
 		t.Errorf("expected MetricsAddr :9090, got %s", cfg.MetricsAddr)
 	}
+
+	if cfg.StorageDriver != StorageDriverMemory {
+		t.Errorf("expected StorageDriver %s, got %s", StorageDriverMemory, cfg.StorageDriver)
+	}
+
+	if !cfg.PostgresAutoMigrate {
+		t.Error("expected PostgresAutoMigrate to be true")
+	}
+	if cfg.OutboxPollInterval <= 0 {
+		t.Error("expected OutboxPollInterval to be > 0")
+	}
+	if cfg.OutboxBatchSize <= 0 {
+		t.Error("expected OutboxBatchSize to be > 0")
+	}
+	if cfg.OutboxMaxAttempts <= 0 {
+		t.Error("expected OutboxMaxAttempts to be > 0")
+	}
+	if cfg.OutboxRetryDelay < 0 {
+		t.Error("expected OutboxRetryDelay to be >= 0")
+	}
+	if cfg.OutboxMaxPending <= 0 {
+		t.Error("expected OutboxMaxPending to be > 0")
+	}
 }
 
 func TestConfig_CustomValues(t *testing.T) {
 	cfg := Config{
-		GRPCAddr:    ":8080",
-		MetricsAddr: ":9091",
+		GRPCAddr:            ":8080",
+		MetricsAddr:         ":9091",
+		StorageDriver:       StorageDriverPostgres,
+		PostgresDSN:         "postgres://oms:oms@localhost:5432/oms?sslmode=disable",
+		PostgresAutoMigrate: false,
+		OutboxPollInterval:  2 * time.Second,
+		OutboxBatchSize:     50,
+		OutboxMaxAttempts:   5,
+		OutboxRetryDelay:    time.Second,
+		OutboxMaxPending:    200,
 	}
 
 	if cfg.GRPCAddr != ":8080" {
@@ -28,6 +60,18 @@ func TestConfig_CustomValues(t *testing.T) {
 
 	if cfg.MetricsAddr != ":9091" {
 		t.Errorf("expected MetricsAddr :9091, got %s", cfg.MetricsAddr)
+	}
+
+	if cfg.StorageDriver != StorageDriverPostgres {
+		t.Errorf("expected StorageDriver %s, got %s", StorageDriverPostgres, cfg.StorageDriver)
+	}
+
+	if cfg.PostgresDSN == "" {
+		t.Error("expected PostgresDSN to be set")
+	}
+
+	if cfg.PostgresAutoMigrate {
+		t.Error("expected PostgresAutoMigrate to be false")
 	}
 }
 
@@ -40,6 +84,18 @@ func TestConfig_EmptyValues(t *testing.T) {
 
 	if cfg.MetricsAddr != "" {
 		t.Errorf("expected empty MetricsAddr, got %s", cfg.MetricsAddr)
+	}
+
+	if cfg.StorageDriver != "" {
+		t.Errorf("expected empty StorageDriver, got %s", cfg.StorageDriver)
+	}
+
+	if cfg.PostgresDSN != "" {
+		t.Errorf("expected empty PostgresDSN, got %s", cfg.PostgresDSN)
+	}
+
+	if cfg.PostgresAutoMigrate {
+		t.Error("expected PostgresAutoMigrate to be false for zero value")
 	}
 }
 

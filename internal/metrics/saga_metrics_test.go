@@ -57,7 +57,7 @@ func TestNewSagaMetrics(t *testing.T) {
 }
 
 func TestRecordSagaStarted(t *testing.T) {
-	// Create isolated metrics with custom registry
+	// Create isolated metrics with a custom registry
 	reg := prometheus.NewRegistry()
 
 	sagaStarted := prometheus.NewCounter(prometheus.CounterOpts{
@@ -79,7 +79,7 @@ func TestRecordSagaStarted(t *testing.T) {
 	// Record saga started
 	metrics.RecordSagaStarted()
 
-	// Check counter value
+	// Check counter-value
 	metric := &dto.Metric{}
 	if err := sagaStarted.Write(metric); err != nil {
 		t.Fatalf("failed to write metric: %v", err)
@@ -135,14 +135,14 @@ func TestRecordSagaCanceled(t *testing.T) {
 		t.Errorf("expected counter value 1.0, got %f", metric.Counter.GetValue())
 	}
 
-	// Check active sagas decreased
+	// Check active sagas unchanged (decrement happens on RecordSagaInFlightFinished)
 	gaugeMetric := &dto.Metric{}
 	if err := activeSagas.Write(gaugeMetric); err != nil {
 		t.Fatalf("failed to write gauge: %v", err)
 	}
 
-	if gaugeMetric.Gauge.GetValue() != 4.0 {
-		t.Errorf("expected active sagas 4.0, got %f", gaugeMetric.Gauge.GetValue())
+	if gaugeMetric.Gauge.GetValue() != 5.0 {
+		t.Errorf("expected active sagas 5.0, got %f", gaugeMetric.Gauge.GetValue())
 	}
 }
 
@@ -182,8 +182,8 @@ func TestRecordSagaRefunded(t *testing.T) {
 		t.Fatalf("failed to write gauge: %v", err)
 	}
 
-	if gaugeMetric.Gauge.GetValue() != 2.0 {
-		t.Errorf("expected active sagas 2.0, got %f", gaugeMetric.Gauge.GetValue())
+	if gaugeMetric.Gauge.GetValue() != 3.0 {
+		t.Errorf("expected active sagas 3.0, got %f", gaugeMetric.Gauge.GetValue())
 	}
 }
 
@@ -223,8 +223,8 @@ func TestRecordSagaCompleted(t *testing.T) {
 		t.Fatalf("failed to write gauge: %v", err)
 	}
 
-	if gaugeMetric.Gauge.GetValue() != 9.0 {
-		t.Errorf("expected active sagas 9.0, got %f", gaugeMetric.Gauge.GetValue())
+	if gaugeMetric.Gauge.GetValue() != 10.0 {
+		t.Errorf("expected active sagas 10.0, got %f", gaugeMetric.Gauge.GetValue())
 	}
 }
 
@@ -264,8 +264,8 @@ func TestRecordSagaFailed(t *testing.T) {
 		t.Fatalf("failed to write gauge: %v", err)
 	}
 
-	if gaugeMetric.Gauge.GetValue() != 6.0 {
-		t.Errorf("expected active sagas 6.0, got %f", gaugeMetric.Gauge.GetValue())
+	if gaugeMetric.Gauge.GetValue() != 7.0 {
+		t.Errorf("expected active sagas 7.0, got %f", gaugeMetric.Gauge.GetValue())
 	}
 }
 
@@ -423,8 +423,10 @@ func TestSagaLifecycle(t *testing.T) {
 	metrics.RecordSagaStarted() // active: 2
 	metrics.RecordSagaStarted() // active: 3
 
-	metrics.RecordSagaCompleted() // active: 2
-	metrics.RecordSagaCompleted() // active: 1
+	metrics.RecordSagaCompleted()
+	metrics.RecordSagaInFlightFinished() // active: 2
+	metrics.RecordSagaCompleted()
+	metrics.RecordSagaInFlightFinished() // active: 1
 
 	// Check active sagas
 	gaugeMetric := &dto.Metric{}
@@ -454,5 +456,33 @@ func TestSagaLifecycle(t *testing.T) {
 
 	if completedMetric.Counter.GetValue() != 2.0 {
 		t.Errorf("expected 2 completed sagas, got %f", completedMetric.Counter.GetValue())
+	}
+}
+
+func TestRecordSagaInFlightFinished(t *testing.T) {
+	reg := prometheus.NewRegistry()
+
+	activeSagas := prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "test_active_sagas_inflight",
+		Help: "Test gauge",
+	})
+
+	reg.MustRegister(activeSagas)
+
+	metrics := &SagaMetrics{
+		activeSagas: activeSagas,
+	}
+
+	metrics.RecordSagaInFlightStarted()
+	metrics.RecordSagaInFlightStarted()
+	metrics.RecordSagaInFlightFinished()
+
+	gaugeMetric := &dto.Metric{}
+	if err := activeSagas.Write(gaugeMetric); err != nil {
+		t.Fatalf("failed to write gauge: %v", err)
+	}
+
+	if gaugeMetric.Gauge.GetValue() != 1.0 {
+		t.Errorf("expected 1.0 active saga, got %f", gaugeMetric.Gauge.GetValue())
 	}
 }

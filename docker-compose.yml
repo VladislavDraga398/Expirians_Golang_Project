@@ -8,6 +8,9 @@ services:
     environment:
       - OMS_GRPC_ADDR=${OMS_GRPC_ADDR}
       - OMS_METRICS_ADDR=${OMS_METRICS_ADDR}
+      - OMS_STORAGE_DRIVER=${OMS_STORAGE_DRIVER:-memory}
+      - OMS_POSTGRES_DSN=${OMS_POSTGRES_DSN:-postgres://oms:oms@postgres:5432/oms?sslmode=disable}
+      - OMS_POSTGRES_AUTO_MIGRATE=${OMS_POSTGRES_AUTO_MIGRATE:-true}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
     ports:
@@ -24,6 +27,26 @@ services:
         reservations:
           cpus: "0.10"
           memory: 64M
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-oms}
+      - POSTGRES_USER=${POSTGRES_USER:-oms}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-oms}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oms} -d ${POSTGRES_DB:-oms}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   prometheus:
     image: prom/prometheus:latest
@@ -129,3 +152,6 @@ services:
 networks:
   monitoring:
     driver: bridge
+
+volumes:
+  postgres_data:

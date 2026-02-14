@@ -1,120 +1,89 @@
-# 🗺️ Roadmap
+# Roadmap
 
-> План развития проекта OMS
+> Актуальный план развития OMS
 
-**Версия:** v2.0 | **Обновлено:** 2025-10-01 | **Статус:** Актуально
-
----
-
-## 📊 Текущий статус: **Phase 5 Complete** (92% Production Ready)
-
-## 🎯 TL;DR
-- ✅ **Phase 1:** Домен + базовый API, идемпотентность, базовая observability
-- ✅ **Phase 2:** Саги и Outbox, интеграции Inventory/Payment, E2E-тесты
-- ✅ **Phase 3:** Компенсации/Refund, метрики саг, Grafana дашборды
-- ✅ **Phase 4:** Kafka Event-Driven Architecture, retry логика, DLQ
-- ✅ **Phase 5:** CI/CD, Kubernetes, Helm, Health Checks, gRPC-Gateway
-- 🔄 **Phase 6:** Distributed Tracing, PostgreSQL, Schema Registry (In Progress)
-
-## ✅ Фаза 1 — Domain & API v1 (COMPLETE)
-- ✅ In-memory storage для быстрого прототипирования
-- ✅ gRPC `OrderService`: CreateOrder, GetOrder, PayOrder, CancelOrder, RefundOrder
-- ✅ Идемпотентность операций
-- ✅ Prometheus метрики для gRPC
-- ✅ Structured logging (logrus)
-- ✅ Unit-тесты домена (54.5% coverage)
-- ✅ Integration тесты
-
-## ✅ Фаза 2 — Sagas & Outbox (COMPLETE)
-- ✅ Saga Orchestrator: Reserve → Pay → Confirm
-- ✅ Mock Inventory/Payment services
-- ✅ Transactional Outbox pattern
-- ✅ Timeline события для audit trail
-- ✅ E2E-тесты для success/failure сценариев
-- ✅ Компенсационные транзакции
-
-## ✅ Фаза 3 — Compensations & Refunds (COMPLETE)
-- ✅ Cancel/Refund flows с компенсациями
-- ✅ Saga метрики (started/completed/failed/canceled/refunded)
-- ✅ Grafana дашборды с визуализацией
-- ✅ Demo скрипты для тестирования
-- ✅ Load testing с ghz (100 RPS)
-
-## ✅ Фаза 4 — Event-Driven Architecture & Resilience (COMPLETE)
-- ✅ Apache Kafka integration (producer/consumer)
-- ✅ Event-driven saga с публикацией событий
-- ✅ Retry логика с exponential backoff для version conflicts
-- ✅ Dead Letter Queue для failed Kafka messages
-- ✅ Race condition fixes (все тесты проходят с -race)
-- ✅ Production safety (удалены debug флаги)
-- ✅ Makefile с 15+ тестовыми командами
-- ⏳ Circuit breaker (опционально)
-- ⏳ Rate limiting (опционально)
-
-## ✅ Фаза 5 — Productionization (COMPLETE - 95%)
-- ✅ Kubernetes manifests (Deployment, Service, ConfigMap, RBAC)
-- ✅ Helm chart для параметризации
-- ✅ Health probes (liveness, readiness, startup)
-- ✅ HPA (Horizontal Pod Autoscaler)
-- ✅ PodDisruptionBudget
-- ✅ NetworkPolicy
-- ✅ CI/CD pipeline (GitHub Actions)
-  - ✅ Lint + format check
-  - ✅ Unit tests с race detector
-  - ✅ Integration tests
-  - ✅ Security scan (Gosec)
-  - ✅ Docker build & push
-  - ✅ Coverage отчёт (Codecov)
-- ✅ Health endpoint с детальными checks
-- ✅ gRPC-Gateway (REST API поверх gRPC)
-- ✅ Документация полностью реорганизована
-- ✅ Makefile с 60+ командами
-
-## 🔄 Фаза 6 — Enhancements (IN PROGRESS - 15%)
-- ✅ gRPC-Gateway для REST API (proto аннотации готовы)
-- 📋 Distributed tracing (Jaeger/Tempo)
-- 📋 PostgreSQL вместо in-memory storage
-- 📋 Schema Registry для Kafka events (Confluent/Apicurio)
-- 📋 Circuit breaker для external services
-- 📋 Rate limiting
-- 📋 Расширенная отчётность/аналитика
----
-
-## 🎯 Приоритеты на ближайшее время
-
-### ✅ Завершено
-1. ✅ Code review fixes (P0 блокеры)
-2. ✅ Makefile реорганизация (60+ команд)
-3. ✅ Pre-commit hook с race detector
-4. ✅ README полностью обновлён
-5. ✅ CI/CD Pipeline (GitHub Actions)
-6. ✅ Kubernetes + Helm
-7. ✅ Health checks (детальные)
-8. ✅ gRPC-Gateway (proto готов)
-9. ✅ Документация реорганизована
-
-### 🔄 В работе (Phase 6)
-10. 📋 Distributed tracing (Jaeger/Tempo)
-11. 📋 PostgreSQL migration
-12. 📋 Circuit breaker
-13. 📋 Rate limiting
-
-### 📋 Запланировано
-14. 📋 Schema Registry
-15. 📋 Canary deployments
-16. 📋 Advanced monitoring
+**Версия:** v2.4 | **Обновлено:** 2026-02-14 | **Статус:** Актуально
 
 ---
 
-## 📈 Метрики прогресса
+## Текущий статус
 
-| Фаза | Статус | Прогресс | Дата завершения |
-|------|--------|----------|-----------------|
-| Phase 1 | ✅ Complete | 100% | 2025-09-20 |
-| Phase 2 | ✅ Complete | 100% | 2025-09-25 |
-| Phase 3 | ✅ Complete | 100% | 2025-09-27 |
-| Phase 4 | ✅ Complete | 100% | 2025-10-01 |
-| Phase 5 | ✅ Complete | 95% | 2025-10-01 |
-| Phase 6 | 🔄 In Progress | 15% | TBD |
+Проект находится в стадии **stabilization + Phase 6 execution**:
+- базовый функционал заказа, Saga и observability работает;
+- инфраструктурные заготовки (K8s/Helm/Kafka/CI) есть;
+- следующий фокус: production-hardening runtime-части.
 
-**Общий прогресс проекта:** 92% Production Ready 🚀
+---
+
+## 6 приоритетов (текущий фокус)
+
+### 1. Stabilize baseline (DONE)
+- Зафиксировать стабильность тестов и убрать флаки.
+- Добиться устойчивого `go test -race ./...`.
+- Результат: тесты проходят в race-режиме, включая `integration -count=10`.
+
+### 2. Graceful shutdown end-to-end (DONE)
+- Корректно завершать gRPC/HTTP серверы.
+- Дождаться завершения фоновых saga-задач перед остановкой процесса.
+- Не принимать новые асинхронные saga-dispatch во время shutdown.
+
+### 3. Documentation consolidation (IN PROGRESS)
+- Убрать расхождения между docs и runtime.
+- Убрать битые ссылки и дубли.
+- Держать единый индекс документации как входную точку.
+
+### 4. PostgreSQL migration (DONE)
+- Вынести runtime-хранилище из in-memory в PostgreSQL.
+- Реализовать `OrderRepository`, `OutboxRepository`, `TimelineRepository`, `IdempotencyRepository`.
+- Подключить миграции к процессу запуска/CI.
+
+Текущий прогресс:
+- добавлен storage-switch `OMS_STORAGE_DRIVER=memory|postgres`;
+- добавлены PostgreSQL-репозитории для `OrderRepository`, `OutboxRepository`, `TimelineRepository`;
+- добавлен PostgreSQL-репозиторий `IdempotencyRepository`;
+- добавлены versioned SQL миграции `up/down` + CLI `cmd/migrate`;
+- добавлена миграция `0002_idempotency_keys` (`up/down`);
+- в CI добавлен обязательный `migration_check` gate (`up -> down -> up`) + PostgreSQL integration tests для idempotency-репозитория;
+- добавлена auto-migration при старте (`OMS_POSTGRES_AUTO_MIGRATE=true`);
+- health-check теперь умеет проверять доступность PostgreSQL.
+
+### 5. Outbox publisher worker (IN PROGRESS)
+- Реализовать публикацию из outbox как отдельный воркер:
+  - `pending -> sent/failed`
+  - retry policy
+  - интеграция с DLQ
+- Убрать разрыв между `enqueue` и реальной доставкой событий.
+
+Текущий прогресс:
+- расширен контракт `OutboxRepository` для `pull pending` + `mark sent/failed`;
+- реализован runtime worker публикации outbox-сообщений;
+- добавлен Kafka outbox publisher + fallback публикация в DLQ;
+- worker подключён к lifecycle приложения (start/stop вместе с сервисом).
+
+### 6. Idempotency enforcement (IN PROGRESS)
+- Включить обязательный `idempotency-key` для мутаций.
+- Хранить request hash + response cache + статус обработки.
+- Гарантировать безопасный replay без двойного эффекта.
+
+Текущий прогресс:
+- обязательный `idempotency-key` включён для mutating gRPC RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`);
+- включено кэширование успешного ответа и replay для повторов с тем же `request_hash`;
+- конфликт `idempotency-key` с другим `request_hash` возвращает `AlreadyExists`.
+
+---
+
+## Что уже сделано по стабилизации (2026-02-12)
+
+- Добавлен управляемый graceful shutdown для фоновых saga-задач.
+- Добавлен `grpc health` registration.
+- Добавлен endpoint `readyz` в HTTP health surface.
+- Устранён флак интеграционных тестов по timeline-событиям.
+- Обновлены ключевые документы и ссылки.
+
+---
+
+## Следующий шаг
+
+Завершить hardening **Outbox + Idempotency**: добавить операционные алерты/регламент репроцессинга DLQ, TTL-cleanup job для `idempotency_keys` и формализовать политику retention.
+
+Параллельный техдолг по качеству кода: убрать скрытые fallback'и в конфиге, вынести магические значения в константы и поддерживать единый вход тестовых прогонов через `test/run/*`.

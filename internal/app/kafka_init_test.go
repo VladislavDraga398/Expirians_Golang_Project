@@ -54,14 +54,14 @@ func TestInitKafkaProducer_MultipleBrokers(t *testing.T) {
 	}
 }
 
-func TestCloseKafka_NilProducer(t *testing.T) {
+func TestCloseKafka_NilProducer(_ *testing.T) {
 	logger := log.WithField("test", "kafka")
 
 	// Не должно паниковать
 	closeKafka(nil, logger)
 }
 
-func TestCloseKafka_WithProducer(t *testing.T) {
+func TestCloseKafka_WithProducer(_ *testing.T) {
 	logger := log.WithField("test", "kafka")
 
 	// Создаём producer (будет ошибка, но это ок для теста)

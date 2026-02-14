@@ -38,6 +38,9 @@ func TestHealthHandler(t *testing.T) {
 	if response.Version != "v1.0.0" {
 		t.Errorf("expected version v1.0.0, got %s", response.Version)
 	}
+	if response.UptimeSeconds < 0 {
+		t.Errorf("expected non-negative uptime_seconds, got %d", response.UptimeSeconds)
+	}
 
 	if len(response.Checks) != 1 {
 		t.Errorf("expected 1 check, got %d", len(response.Checks))
@@ -142,8 +145,8 @@ func TestSimpleChecker(t *testing.T) {
 		t.Errorf("expected status healthy, got %s", check.Status)
 	}
 
-	if check.Duration < 10*time.Millisecond {
-		t.Errorf("expected duration >= 10ms, got %v", check.Duration)
+	if check.DurationMs < 10 {
+		t.Errorf("expected duration_ms >= 10, got %d", check.DurationMs)
 	}
 }
 

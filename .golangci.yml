@@ -17,14 +17,7 @@ linters:
     - revive        # стиль кода (замена golint)
     - gosec         # безопасность кода
     
-  disable:
-    - deadcode      # deprecated
-    - varcheck      # deprecated  
-    - structcheck   # deprecated
-    - maligned      # deprecated
-    - scopelint     # deprecated
-    - interfacer    # deprecated
-    - golint        # deprecated
+  # Deprecated линтеры автоматически отключены в golangci-lint v1.59.1
 
 linters-settings:
   errcheck:

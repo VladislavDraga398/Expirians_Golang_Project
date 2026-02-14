@@ -1,8 +1,8 @@
-# 🚢 Kubernetes Deployment
+# Kubernetes Deployment
 
 Production-ready Kubernetes манифесты для OMS.
 
-## 📋 Содержимое
+## Содержимое
 
 | Файл | Описание |
 |------|----------|
@@ -16,7 +16,7 @@ Production-ready Kubernetes манифесты для OMS.
 | `networkpolicy.yaml` | Network isolation |
 | `kustomization.yaml` | Kustomize configuration |
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### Предварительные требования
 
@@ -61,7 +61,7 @@ kubectl logs -n oms -l app=oms --tail=100 -f
 kubectl exec -n oms deployment/oms -- wget -qO- http://localhost:9090/healthz
 ```
 
-## ⚙️ Конфигурация
+## Конфигурация
 
 ### ConfigMap
 
@@ -109,7 +109,7 @@ images:
   newTag: v1.0.0
 ```
 
-## 📊 Мониторинг
+## Мониторинг
 
 ### Metrics
 
@@ -141,7 +141,7 @@ kubectl logs -n oms -l app=oms -f --tail=100
 kubectl get events -n oms --sort-by='.lastTimestamp'
 ```
 
-## 🔄 Обновление
+## Обновление
 
 ### Rolling Update
 
@@ -166,7 +166,7 @@ kubectl rollout undo deployment/oms -n oms
 kubectl rollout undo deployment/oms --to-revision=2 -n oms
 ```
 
-## 📈 Автоскейлинг
+## Автоскейлинг
 
 ### HPA Status
 
@@ -185,7 +185,7 @@ kubectl scale deployment/oms --replicas=5 -n oms
 kubectl get pods -n oms
 ```
 
-## 🔒 Безопасность
+## Безопасность
 
 ### Network Policy
 
@@ -210,7 +210,7 @@ Deployment использует:
 - Read ConfigMaps
 - Read Secrets
 
-## 🐛 Отладка
+## Отладка
 
 ### Pod не запускается
 
@@ -245,7 +245,7 @@ kubectl exec -it <pod-name> -n oms -- nslookup kubernetes.default
 kubectl exec -it <pod-name> -n oms -- wget -qO- http://oms:50051
 ```
 
-## 🧹 Удаление
+## Удаление
 
 ```bash
 # Удалить все ресурсы
@@ -258,7 +258,7 @@ kubectl delete -k deploy/k8s/
 kubectl delete namespace oms
 ```
 
-## 📝 Best Practices
+## Best Practices
 
 ### 1. Resource Limits
 
@@ -306,7 +306,7 @@ affinity:
 terminationGracePeriodSeconds: 30
 ```
 
-## 🔗 Дополнительные ресурсы
+## Дополнительные ресурсы
 
 - [Kubernetes Documentation](https://kubernetes.io/docs/)
 - [Kustomize](https://kustomize.io/)
@@ -315,4 +315,4 @@ terminationGracePeriodSeconds: 30
 
 ---
 
-**✅ Kubernetes manifests готовы к использованию!**
+** Kubernetes manifests готовы к использованию!**

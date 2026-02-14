@@ -7,6 +7,8 @@ ADDR="localhost:50051"
 CURRENCY="USD"
 ITERATIONS=${ITERATIONS:-30}
 CANCEL_RATE=${CANCEL_RATE:-0}   # 0..100 (процент отмен после оплаты)
+IMPORT_PATHS=(-import-path . -import-path proto)
+RUN_ID="$(date +%s%N)-$RANDOM"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Error: '$1' not found in PATH"; exit 1; }; }
 extract_order_id() {
@@ -24,6 +26,8 @@ printf "Running saga load: iterations=%d, cancel_rate=%d%%\n" "$ITERATIONS" "$CA
 for i in $(seq 1 "$ITERATIONS"); do
   # Create
   CREATE_RESP=$(grpcurl -plaintext \
+    "${IMPORT_PATHS[@]}" \
+    -H "idempotency-key: load-create-${RUN_ID}-${i}" \
     -proto "$PROTO" \
     -d '{
           "customer_id":"load-'"$i"'",
@@ -39,6 +43,8 @@ for i in $(seq 1 "$ITERATIONS"); do
 
   # Pay (triggers saga)
   grpcurl -plaintext \
+    "${IMPORT_PATHS[@]}" \
+    -H "idempotency-key: load-pay-${RUN_ID}-${i}" \
     -proto "$PROTO" \
     -d '{"order_id":"'$ORDER_ID'"}' \
     "$ADDR" oms.v1.OrderService/PayOrder >/dev/null
@@ -48,6 +54,8 @@ for i in $(seq 1 "$ITERATIONS"); do
     r=$((RANDOM % 100))
     if [[ "$r" -lt "$CANCEL_RATE" ]]; then
       grpcurl -plaintext \
+        "${IMPORT_PATHS[@]}" \
+        -H "idempotency-key: load-cancel-${RUN_ID}-${i}" \
         -proto "$PROTO" \
         -d '{"order_id":"'$ORDER_ID'", "reason":"load-cancel"}' \
         "$ADDR" oms.v1.OrderService/CancelOrder >/dev/null || true

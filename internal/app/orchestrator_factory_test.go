@@ -51,7 +51,7 @@ func TestCreateOrchestrator_BothPaths(t *testing.T) {
 	// Проверка что createOrchestrator принимает правильные параметры
 	// (тип проверяется на этапе компиляции)
 	type factoryFunc func(*Dependencies, interface{}) saga.Orchestrator
-	var _ factoryFunc = func(d *Dependencies, k interface{}) saga.Orchestrator {
+	var _ factoryFunc = func(d *Dependencies, _ interface{}) saga.Orchestrator {
 		return createOrchestrator(d, nil)
 	}
 }

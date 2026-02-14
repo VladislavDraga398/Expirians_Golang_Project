@@ -13,7 +13,8 @@ concurrency:
 
 env:
   GO_VERSION: '1.24.x'
-  GOLANGCI_LINT_VERSION: v1.59.1
+  GOLANGCI_LINT_VERSION: v1.64.8
+  COVERAGE_MIN_PERCENT: '80.0'
 
 jobs:
   # ========================================================================
@@ -62,6 +63,23 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: oms
+          POSTGRES_PASSWORD: oms
+          POSTGRES_DB: oms
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U oms -d oms"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=24
+    env:
+      OMS_POSTGRES_TEST_DSN: postgres://oms:oms@localhost:5432/oms?sslmode=disable
+      OMS_POSTGRES_DSN: postgres://oms:oms@localhost:5432/oms?sslmode=disable
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -75,6 +93,18 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Wait for PostgreSQL readiness
+        run: |
+          for i in $(seq 1 60); do
+            if (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1; then
+              echo "✅ PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ PostgreSQL did not become ready in time"
+          exit 1
+
       - name: Run tests with race detector
         run: |
           echo "🧪 Running tests with race detector..."
@@ -87,6 +117,25 @@ jobs:
           go test ./... -coverprofile=coverage.out -covermode=atomic
           go tool cover -func=coverage.out
 
+      - name: Coverage gate (min 80%)
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%","",$3); print $3}')
+          if [ -z "$total" ]; then
+            echo "❌ Failed to parse total coverage from coverage.out"
+            exit 1
+          fi
+
+          echo "Coverage total: ${total}%"
+          awk -v total="$total" -v min="${COVERAGE_MIN_PERCENT}" '
+            BEGIN {
+              if ((total + 0) < (min + 0)) {
+                printf "❌ Coverage %.1f%% is below required %.1f%%\n", total, min
+                exit 1
+              }
+              printf "✅ Coverage %.1f%% meets required %.1f%%\n", total, min
+            }
+          '
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -96,12 +145,154 @@ jobs:
         continue-on-error: true
 
   # ========================================================================
+  # Migration Check
+  # ========================================================================
+  migration_check:
+    name: Migration Check
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run migration gate
+        run: |
+          ./scripts/ci/migration_gate.sh
+
+      - name: Upload migration logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-check-logs
+          path: postgres-migration-logs.txt
+          retention-days: 7
+
+  # ========================================================================
+  # Pre-Merge Integration Stand + Load + Observability Gates (PR only)
+  # ========================================================================
+  premerge_stand:
+    name: Pre-Merge Stand
+    runs-on: ubuntu-latest
+    needs: [lint, test, migration_check, build]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install grpcurl
+        run: |
+          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Select stand profile by target branch
+        run: |
+          profile=dev
+          smoke_iterations=40
+          smoke_cancel_rate=20
+          load_max_error_rate=0.020
+          load_max_p95_ms=500
+          load_max_avg_ms=180
+          load_total=200
+          load_concurrency=20
+          load_connections=10
+
+          if [ "${{ github.base_ref }}" = "main" ] || [ "${{ github.base_ref }}" = "master" ]; then
+            profile=release
+            smoke_iterations=120
+            smoke_cancel_rate=25
+            load_max_error_rate=0.010
+            load_max_p95_ms=350
+            load_max_avg_ms=120
+            load_total=400
+            load_concurrency=40
+            load_connections=20
+          fi
+
+          echo "STAND_PROFILE=$profile" >> "$GITHUB_ENV"
+          echo "SMOKE_ITERATIONS=$smoke_iterations" >> "$GITHUB_ENV"
+          echo "SMOKE_CANCEL_RATE=$smoke_cancel_rate" >> "$GITHUB_ENV"
+          echo "LOAD_MAX_ERROR_RATE=$load_max_error_rate" >> "$GITHUB_ENV"
+          echo "LOAD_MAX_P95_MS=$load_max_p95_ms" >> "$GITHUB_ENV"
+          echo "LOAD_MAX_AVG_MS=$load_max_avg_ms" >> "$GITHUB_ENV"
+          echo "LOAD_TOTAL=$load_total" >> "$GITHUB_ENV"
+          echo "LOAD_CONCURRENCY=$load_concurrency" >> "$GITHUB_ENV"
+          echo "LOAD_CONNECTIONS=$load_connections" >> "$GITHUB_ENV"
+
+          echo "✅ Selected '$profile' stand profile for base_ref=${{ github.base_ref }}"
+
+      - name: Boot integration stand
+        run: |
+          docker compose up -d --build oms zookeeper kafka prometheus
+
+      - name: Wait for health endpoints
+        run: |
+          echo "Waiting for OMS health endpoint..."
+          for i in $(seq 1 120); do
+            if curl -sf http://localhost:9090/healthz >/dev/null 2>&1; then
+              echo "✅ OMS is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ Timeout waiting for /healthz"
+          docker compose ps
+          exit 1
+
+      - name: Run saga lifecycle smoke load
+        run: |
+          ITERATIONS=${SMOKE_ITERATIONS} CANCEL_RATE=${SMOKE_CANCEL_RATE} ./scripts/saga_load.sh
+
+      - name: Run observability gate
+        run: |
+          CHECK_PROMETHEUS=1 ./scripts/ci/observability_gate.sh
+
+      - name: Run load gate
+        run: |
+          MAX_ERROR_RATE=${LOAD_MAX_ERROR_RATE} \
+          MAX_P95_MS=${LOAD_MAX_P95_MS} \
+          MAX_AVG_MS=${LOAD_MAX_AVG_MS} \
+          TOTAL=${LOAD_TOTAL} \
+          CONCURRENCY=${LOAD_CONCURRENCY} \
+          CONNECTIONS=${LOAD_CONNECTIONS} \
+          ./scripts/ci/load_gate.sh
+
+      - name: Collect stand logs
+        if: always()
+        run: |
+          docker compose logs --tail=200 > compose-logs.txt || true
+
+      - name: Upload stand logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premerge-stand-logs
+          path: compose-logs.txt
+          retention-days: 7
+
+      - name: Shutdown stand
+        if: always()
+        run: |
+          docker compose down -v
+
+  # ========================================================================
   # Сборка
   # ========================================================================
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, test, migration_check]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -207,7 +398,7 @@ jobs:
   summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [lint, test, build, docker, security]
+    needs: [lint, test, migration_check, build, premerge_stand, docker, security]
     if: always()
     steps:
       - name: Check results
@@ -218,11 +409,21 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Lint | ${{ needs.lint.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Tests | ${{ needs.test.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Migration Check | ${{ needs.migration_check.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Build | ${{ needs.build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker | ${{ needs.docker.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pre-Merge Stand | ${{ needs.premerge_stand.result == 'success' && '✅ Passed' || needs.premerge_stand.result == 'skipped' && '➖ Skipped' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker | ${{ needs.docker.result == 'success' && '✅ Passed' || needs.docker.result == 'skipped' && '➖ Skipped' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Security | ${{ needs.security.result == 'success' && '✅ Passed' || '⚠️ Warning' }} |" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+
+          fail=0
+          if [ "${{ needs.lint.result }}" != "success" ] || [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.migration_check.result }}" != "success" ] || [ "${{ needs.build.result }}" != "success" ]; then
+            fail=1
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "${{ needs.premerge_stand.result }}" != "success" ]; then
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "❌ **Pipeline failed!** Please check the logs above." >> $GITHUB_STEP_SUMMARY
             exit 1

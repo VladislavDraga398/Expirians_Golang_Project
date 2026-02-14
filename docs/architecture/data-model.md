@@ -1,4 +1,4 @@
-# 📊 Data Model
+# Data Model
 
 > Модель данных и схема базы данных OMS
 
@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 TL;DR
+## TL;DR
 - Нормализованная модель: `orders`, `order_items`, `payments`, `inventory_reservations`, `outbox`, `idempotency_keys`.
 - Денежные суммы — minor units (`int64`).
 - Конкуренция — optimistic locking (`orders.version`).

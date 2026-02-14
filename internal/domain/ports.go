@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 // InventoryService описывает взаимодействие с сервисом складских резервов.
 type InventoryService interface {
 	// Reserve пытается зарезервировать товары под заказ.
@@ -25,12 +27,25 @@ type OutboxPublisher interface {
 // OutboxRepository позволяет сохранять события для последующей публикации.
 type OutboxRepository interface {
 	Enqueue(msg OutboxMessage) (OutboxMessage, error)
+	PullPending(limit int) ([]OutboxMessage, error)
+	Stats() (OutboxStats, error)
+	MarkSent(id string) error
+	MarkFailed(id string) error
 }
 
 // TimelineRepository хранит события жизненного цикла заказа.
 type TimelineRepository interface {
 	Append(event TimelineEvent) error
 	List(orderID string) ([]TimelineEvent, error)
+}
+
+// IdempotencyRepository хранит состояние обработки запросов по idempotency-key.
+type IdempotencyRepository interface {
+	CreateProcessing(key, requestHash string, ttlAt time.Time) (IdempotencyRecord, error)
+	Get(key string) (IdempotencyRecord, error)
+	MarkDone(key string, responseBody []byte, httpStatus int) error
+	MarkFailed(key string, responseBody []byte, httpStatus int) error
+	DeleteExpired(before time.Time, limit int) (int, error)
 }
 
 // SagaStep задаёт константы шагов для метрик/логов.
@@ -52,4 +67,10 @@ type OutboxMessage struct {
 	AggregateID   string
 	EventType     string
 	Payload       []byte
+}
+
+// OutboxStats описывает текущее состояние backlog transactional outbox.
+type OutboxStats struct {
+	PendingCount    int
+	OldestPendingAt time.Time
 }

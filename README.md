@@ -1,56 +1,57 @@
-# 🛒 OMS - Order Management System
+# OMS - Order Management System
 
-[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-44%25-yellow.svg)]()
 
 **Production-ready микросервис** для управления заказами с реализацией **Saga Pattern** и **Event-Driven Architecture** через Apache Kafka.
 
-## 📊 Статус проекта
+## Статус проекта
 
-- **Версия:** v2.0
-- **Статус:** Phase 4 Complete (85% Production Ready)
-- **Последнее обновление:** 2025-10-01
+- **Версия:** v2.1
+- **Статус:** Stabilization + Phase 6 Execution
+- **Последнее обновление:** 2026-02-12
 
-## ✨ Ключевые возможности
+## Ключевые возможности
 
-- ✅ **Saga Orchestrator** - Reserve → Pay → Confirm с компенсациями
-- ✅ **Event-Driven Architecture** - Apache Kafka для асинхронных событий
-- ✅ **Transactional Outbox** - гарантированная доставка событий
-- ✅ **Full Observability** - Prometheus метрики + Grafana дашборды
-- ✅ **Race-free код** - все тесты проходят с `-race` флагом
-- ✅ **Dead Letter Queue** - обработка failed Kafka messages
-- ✅ **Retry логика** - exponential backoff для version conflicts
-- ✅ **Timeline события** - audit trail для каждого заказа
+- **Saga Orchestrator** - Reserve → Pay → Confirm с компенсациями
+- **Event-Driven Architecture** - Apache Kafka для асинхронных событий
+- **Transactional Outbox** - гарантированная доставка событий
+- **Full Observability** - Prometheus метрики + Grafana дашборды
+- **Graceful Shutdown** - контролируемое завершение gRPC/HTTP и фоновых saga-задач
+- **Race-free код** - тесты проходят с `-race` флагом
+- **Dead Letter Queue** - обработка failed Kafka messages
+- **Retry логика** - exponential backoff для version conflicts
+- **Timeline события** - audit trail для каждого заказа
 
-## 🏗️ Архитектура
+## Архитектура
 
 ```
 ┌─────────────┐      ┌──────────────┐      ┌─────────────┐
-│   gRPC API  │─────▶│     Saga     │─────▶│  Inventory  │
+│   gRPC API  │─────│     Saga     │─────│  Inventory  │
 │             │      │ Orchestrator │      │   Service   │
 └─────────────┘      └──────────────┘      └─────────────┘
                             │
-                            ├──────────────▶ Payment Service
+                            ├────────────── Payment Service
                             │
-                            ├──────────────▶ Kafka Producer
+                            ├────────────── Kafka Producer
                             │
-                            └──────────────▶ Transactional Outbox
+                            └────────────── Transactional Outbox
 ```
 
 **Стек технологий:**
-- Go 1.21+
+- Go 1.24+
 - gRPC + Protobuf
 - Apache Kafka 7.5.0
 - Prometheus + Grafana
 - Docker Compose
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### Предварительные требования
 
-- Go 1.21+
+- Go 1.24+
 - Docker & Docker Compose
 - Make
 - grpcurl (опционально)
@@ -86,7 +87,7 @@ make docker-run
 make demo
 ```
 
-## 🧪 Тестирование
+## Тестирование
 
 ### Базовые команды
 
@@ -122,9 +123,11 @@ make test-failfast
 make bench
 ```
 
+Централизованные скрипты запуска: `test/run/all.sh`, `test/run/unit.sh`, `test/run/integration.sh`, `test/run/race.sh`.
+
 Полный список команд: `make help`
 
-## 📖 API Примеры
+## API Примеры
 
 ### CreateOrder
 
@@ -156,9 +159,9 @@ grpcurl -plaintext -d '{
 }' localhost:50051 oms.v1.OrderService/GetOrder
 ```
 
-Больше примеров: [docs/API_EXAMPLES.md](docs/API_EXAMPLES.md)
+Больше примеров: [docs/guides/api-examples.md](docs/guides/api-examples.md)
 
-## 📊 Мониторинг
+## Мониторинг
 
 После запуска `make demo` доступны:
 
@@ -175,7 +178,7 @@ grpcurl -plaintext -d '{
 - `oms_saga_duration_seconds` - длительность саги
 - `oms_active_sagas` - активные саги
 
-## 🔧 Разработка
+## Разработка
 
 ### Структура проекта
 
@@ -221,59 +224,47 @@ git add .
 git commit -m "feat: add new feature"
 ```
 
+### Веточная политика
+
+- Основной поток: `feature/* -> dev -> main`.
+- Временный тестовый стенд живет в CI (GitHub Actions), а не в отдельной git-ветке.
+- Для каждого PR запускается `premerge_stand`: PR в `dev` использует быстрый dev-профиль, PR в `main`/`master` использует усиленный release-профиль.
+- Merge разрешен только после успешных checks (`Lint`, `Tests`, `Build`, `Pre-Merge Stand`).
+
 ### Pre-commit hook
 
 Автоматически проверяет:
-- ✅ Форматирование (gofmt)
-- ✅ Статический анализ (go vet)
-- ✅ Race conditions (go test -race)
-- ✅ Линтинг (golangci-lint)
-- ✅ TODO/FIXME комментарии
-- ✅ Debug print statements
+- Форматирование (gofmt)
+- Статический анализ (go vet)
+- Race conditions (go test -race)
+- Линтинг (golangci-lint)
+- TODO/FIXME комментарии
+- Debug print statements
 
 Установка:
 ```bash
 git config core.hooksPath .githooks
 ```
 
-## 📚 Документация
+## Документация
 
-### 🚀 Начало работы
-- **[Quick Start Guide](docs/quick-start.md)** - запустите за 5 минут ⚡
-- **[Documentation Index](docs/INDEX.md)** - полный индекс документации 📖
+- **Единая точка входа:** [Technical Documentation Hub](docs/TECHDOCS.md)
+- [Documentation Index](docs/INDEX.md)
+- [Quick Start Guide](docs/quick-start.md)
 
-### 📖 Популярные руководства
-- [API Examples](docs/guides/api-examples.md) - примеры использования API
-- [Makefile Guide](docs/guides/makefile.md) - все команды для разработки
-- [CI/CD Pipeline](docs/guides/ci-cd.md) - автоматизация и деплой
+## Roadmap
 
-### 🏗️ Архитектура
-- [Architecture Overview](docs/architecture/overview.md) - общая архитектура
-- [Saga Pattern](docs/architecture/saga.md) - распределённые транзакции
-- [Kafka Integration](docs/guides/kafka.md) - Event-Driven Architecture
-
-### 🔧 Deployment
-- [Kubernetes Guide](deploy/k8s/README.md) - деплой в K8s
-- [Helm Chart](deploy/helm/oms/README.md) - Helm guide
-
-### 📝 Дополнительно
-- [Roadmap](docs/roadmap.md) - план развития
-- [ADR Index](docs/decisions/adr/INDEX.md) - архитектурные решения
-
-## 🎯 Roadmap
-
-- ✅ **Phase 1:** Domain & API v1 (100%)
-- ✅ **Phase 2:** Sagas & Outbox (100%)
-- ✅ **Phase 3:** Compensations & Refunds (100%)
-- ✅ **Phase 4:** Event-Driven Architecture & Resilience (100%)
-- ✅ **Phase 5:** Productionization - CI/CD, K8s, Helm (95%)
-- 🔄 **Phase 6:** Enhancements - Tracing, PostgreSQL (15%)
-
-**Текущий статус:** 92% Production Ready 🚀
+Текущие 6 приоритетов:
+- 1.  Stabilize baseline: `go test -race ./...` и интеграционные тесты без флаков
+- 2.  Graceful shutdown path: корректное завершение API и фоновых saga-задач
+- 3.  Documentation consolidation: актуальные ссылки, единая навигация, честные статусы
+- 4.  PostgreSQL migration: заменить in-memory runtime-хранилище
+- 5.  Outbox publisher worker: pending -> sent/failed + retries + DLQ
+- 6.  Idempotency enforcement: metadata key + хранилище + replay-safe поведение
 
 Детали: [docs/roadmap.md](docs/roadmap.md)
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -281,17 +272,17 @@ git config core.hooksPath .githooks
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 👤 Author
+## Author
 
 **Vladislav Dragonenkov**
 
 - GitHub: [@vladislavdragonenkov](https://github.com/vladislavdragonenkov)
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Saga Pattern inspiration from [Microservices Patterns](https://microservices.io/patterns/data/saga.html)
 - Event-Driven Architecture best practices
@@ -299,4 +290,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**⭐ Если проект полезен, поставьте звезду!**
+** Если проект полезен, поставьте звезду!**

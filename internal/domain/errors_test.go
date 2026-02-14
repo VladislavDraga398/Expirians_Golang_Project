@@ -42,3 +42,46 @@ func TestIsVersionConflict(t *testing.T) {
 		})
 	}
 }
+
+func TestIsIdempotencyConflict(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "idempotency already exists",
+			err:  ErrIdempotencyKeyAlreadyExists,
+			want: true,
+		},
+		{
+			name: "idempotency hash mismatch",
+			err:  ErrIdempotencyHashMismatch,
+			want: true,
+		},
+		{
+			name: "wrapped idempotency conflict",
+			err:  errors.Join(ErrIdempotencyHashMismatch, errors.New("extra context")),
+			want: true,
+		},
+		{
+			name: "non idempotency error",
+			err:  ErrOrderVersionConflict,
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsIdempotencyConflict(tt.err)
+			if got != tt.want {
+				t.Errorf("IsIdempotencyConflict() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

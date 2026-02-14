@@ -59,7 +59,7 @@ func TestNewBatchProcessor_WithNilLogger(t *testing.T) {
 	}
 }
 
-func TestBatchProcessor_StartStop(t *testing.T) {
+func TestBatchProcessor_StartStop(_ *testing.T) {
 	logger := log.WithField("test", "batch-lifecycle")
 
 	repo := memory.NewOrderRepository()

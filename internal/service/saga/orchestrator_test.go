@@ -19,18 +19,40 @@ type stubInventory struct {
 	releaseCnt int
 }
 
-func (s *stubInventory) Reserve(orderID string, items []domain.OrderItem) error {
+func (s *stubInventory) Reserve(_ string, _ []domain.OrderItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reserveCnt++
 	return s.reserveErr
 }
 
-func (s *stubInventory) Release(orderID string, items []domain.OrderItem) error {
+func (s *stubInventory) Release(_ string, _ []domain.OrderItem) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.releaseCnt++
 	return s.releaseErr
+}
+
+type blockingInventory struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func newBlockingInventory() *blockingInventory {
+	return &blockingInventory{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+}
+
+func (b *blockingInventory) Reserve(_ string, _ []domain.OrderItem) error {
+	close(b.started)
+	<-b.release
+	return nil
+}
+
+func (b *blockingInventory) Release(_ string, _ []domain.OrderItem) error {
+	return nil
 }
 
 type stubPayment struct {
@@ -44,14 +66,14 @@ type stubPayment struct {
 	refundCnt int
 }
 
-func (s *stubPayment) Pay(orderID string, amountMinor int64, currency string) (domain.PaymentStatus, error) {
+func (s *stubPayment) Pay(_ string, _ int64, _ string) (domain.PaymentStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.payCnt++
 	return s.payStatus, s.payErr
 }
 
-func (s *stubPayment) Refund(orderID string, amountMinor int64, currency string) (domain.PaymentStatus, error) {
+func (s *stubPayment) Refund(_ string, _ int64, _ string) (domain.PaymentStatus, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.refundCnt++
@@ -234,5 +256,46 @@ func TestOrchestrator_PaymentFailure(t *testing.T) {
 	}
 	if !hasFailedEvent {
 		t.Fatal("expected OrderSagaFailed event")
+	}
+}
+
+func TestOrchestrator_CancelDuringStart_DoesNotReconfirmOrder(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	outbox := memory.NewOutboxRepository()
+	timeline := memory.NewTimelineRepository()
+	inventory := newBlockingInventory()
+	payments := &stubPayment{payStatus: domain.PaymentStatusCaptured}
+
+	seedOrder(t, repo, domain.OrderStatusPending)
+
+	orch := NewOrchestratorWithoutMetrics(repo, outbox, timeline, inventory, payments, log.New().WithField("test", "cancel_race"))
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		orch.Start("order-1")
+	}()
+
+	select {
+	case <-inventory.started:
+	case <-time.After(time.Second):
+		t.Fatal("reserve step did not start in time")
+	}
+
+	orch.Cancel("order-1", "race")
+	close(inventory.release)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("start did not finish in time")
+	}
+
+	updated, err := repo.Get("order-1")
+	if err != nil {
+		t.Fatalf("get order: %v", err)
+	}
+	if updated.Status != domain.OrderStatusCanceled {
+		t.Fatalf("expected status %s, got %s", domain.OrderStatusCanceled, updated.Status)
 	}
 }

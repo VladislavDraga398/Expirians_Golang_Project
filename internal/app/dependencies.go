@@ -19,9 +19,7 @@ type Dependencies struct {
 	Logger       *log.Entry
 }
 
-// NewDependencies создаёт и инициализирует все зависимости приложения.
-// NOTE: В production окружении inventory и payment сервисы должны быть
-// заменены на реальные клиенты внешних сервисов.
+// NewDependencies создаёт зависимости для локального запуска (in-memory + mock сервисы).
 func NewDependencies(logger *log.Entry) *Dependencies {
 	if logger == nil {
 		logger = log.WithField("component", "app")

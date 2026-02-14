@@ -1,12 +1,12 @@
-# 📮 Transactional Outbox
+# Transactional Outbox
 
 > Transactional Outbox Pattern для гарантированной доставки событий
 
-**Версия:** v2.0 | **Обновлено:** 2025-10-01 | **Статус:** Актуально
+**Версия:** v2.1 | **Обновлено:** 2026-02-14 | **Статус:** In progress
 
 ---
 
-## 🎯 TL;DR
+## TL;DR
 - Transactional Outbox: запись события в одной транзакции с бизнес-логикой.
 - Publisher воркеры читают `pending`, публикуют в брокер, обновляют статус, обрабатывают ретраи/DLQ.
 - Потребители обязаны быть идемпотентны (dedup по ключу сообщения).
@@ -38,7 +38,7 @@ sequenceDiagram
   App->>DB: TX: UPDATE ORDERS + INSERT OUTBOX(pending)
   App-->>App: commit
   loop workers
-    Pub->>DB: SELECT pending LIMIT N FOR UPDATE SKIP LOCKED
+    Pub->>DB: SELECT pending LIMIT N
     Pub->>MQ: Publish(event)
     alt success
       MQ-->>Pub: ack
@@ -46,6 +46,12 @@ sequenceDiagram
     else failure
     end
   end
+```
+
+## Текущий runtime-статус
+- Реализован polling worker для outbox (`pull pending -> publish -> mark sent/failed`).
+- Добавлен retry policy (exponential backoff) и fallback отправка в DLQ при исчерпании попыток.
+- Worker встроен в lifecycle приложения и корректно останавливается при shutdown.
 
 ## Ретраи, DLQ и метрики
 - Экспоненциальный backoff + jitter; после N попыток → `failed` и отправка в DLQ.

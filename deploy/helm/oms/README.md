@@ -1,8 +1,8 @@
-# ⎈ OMS Helm Chart
+# OMS Helm Chart
 
 Production-ready Helm chart для Order Management System.
 
-## 🚀 Быстрый старт
+## Быстрый старт
 
 ### Установка
 
@@ -37,7 +37,7 @@ helm upgrade oms ./deploy/helm/oms -n oms --dry-run --debug
 helm uninstall oms -n oms
 ```
 
-## ⚙️ Конфигурация
+## Конфигурация
 
 ### Основные параметры
 
@@ -75,7 +75,7 @@ helm uninstall oms -n oms
 | `autoscaling.targetCPUUtilizationPercentage` | Target CPU | `70` |
 | `autoscaling.targetMemoryUtilizationPercentage` | Target Memory | `80` |
 
-## 📝 Примеры использования
+## Примеры использования
 
 ### Development
 
@@ -170,7 +170,7 @@ externalService:
 helm install oms ./deploy/helm/oms -n oms-prod --create-namespace -f values-prod.yaml
 ```
 
-## 🔧 Расширенная конфигурация
+## Расширенная конфигурация
 
 ### Custom Environment Variables
 
@@ -217,7 +217,7 @@ tolerations:
   effect: "NoSchedule"
 ```
 
-## 📊 Мониторинг
+## Мониторинг
 
 ### Prometheus ServiceMonitor
 
@@ -238,7 +238,7 @@ monitoring:
     enabled: true
 ```
 
-## 🔒 Безопасность
+## Безопасность
 
 ### Network Policy
 
@@ -253,7 +253,7 @@ networkPolicy:
 
 Настроен для запуска от non-root пользователя с read-only filesystem.
 
-## 🧪 Тестирование
+## Тестирование
 
 ```bash
 # Lint chart
@@ -269,13 +269,13 @@ helm install oms ./deploy/helm/oms -n oms --dry-run --debug
 helm test oms -n oms
 ```
 
-## 📚 Дополнительные ресурсы
+## Дополнительные ресурсы
 
 - [Helm Documentation](https://helm.sh/docs/)
 - [Values Schema](./values.schema.json)
 - [OMS Documentation](https://github.com/vladislavdragonenkov/oms)
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch

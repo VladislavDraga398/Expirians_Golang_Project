@@ -49,7 +49,7 @@ func (r *outboxRepositoryInMemory) Enqueue(msg domain.OutboxMessage) (domain.Out
 }
 
 // PullPending возвращает до limit сообщений со статусом `pending`.
-func (r *outboxRepositoryInMemory) PullPending(limit int) []domain.OutboxMessage {
+func (r *outboxRepositoryInMemory) PullPending(limit int) ([]domain.OutboxMessage, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -68,7 +68,26 @@ func (r *outboxRepositoryInMemory) PullPending(limit int) []domain.OutboxMessage
 		}
 	}
 
-	return result
+	return result, nil
+}
+
+// Stats возвращает сводную информацию о backlog outbox.
+func (r *outboxRepositoryInMemory) Stats() (domain.OutboxStats, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	stats := domain.OutboxStats{}
+	for _, rec := range r.records {
+		if rec.status != "pending" {
+			continue
+		}
+		stats.PendingCount++
+		if stats.OldestPendingAt.IsZero() || rec.createdAt.Before(stats.OldestPendingAt) {
+			stats.OldestPendingAt = rec.createdAt
+		}
+	}
+
+	return stats, nil
 }
 
 // MarkSent обновляет статус события после успешной публикации.

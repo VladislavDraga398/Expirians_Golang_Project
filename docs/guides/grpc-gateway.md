@@ -1,20 +1,22 @@
-# 🌐 gRPC-Gateway
+# gRPC-Gateway
 
 REST API поверх gRPC через gRPC-Gateway.
 
-## 📋 Обзор
+> Статус на 2026-02-12: в runtime OMS сейчас включён только gRPC сервер; REST gateway остаётся как планируемое расширение.
+
+## Обзор
 
 gRPC-Gateway автоматически генерирует RESTful HTTP API из gRPC сервиса, позволяя клиентам использовать как gRPC, так и REST.
 
 ### Преимущества
 
-- ✅ Единый источник истины (proto файл)
-- ✅ Автоматическая генерация REST endpoints
-- ✅ JSON ↔ Protobuf конвертация
-- ✅ Swagger/OpenAPI документация
-- ✅ Обратная совместимость
+- Единый источник истины (proto файл)
+- Автоматическая генерация REST endpoints
+- JSON  Protobuf конвертация
+- Swagger/OpenAPI документация
+- Обратная совместимость
 
-## 🔧 Установка
+## Установка
 
 ### Предварительные требования
 
@@ -45,7 +47,7 @@ protoc \
   proto/oms/v1/order_service.proto
 ```
 
-## 📡 REST API Endpoints
+## REST API Endpoints
 
 ### CreateOrder
 
@@ -149,7 +151,7 @@ curl -X POST http://localhost:8080/v1/orders/order-123/refund \
   }'
 ```
 
-## 🔧 Конфигурация
+## Конфигурация
 
 ### Proto файл
 
@@ -181,7 +183,7 @@ service OrderService {
 | CancelOrder | POST | `/v1/orders/{order_id}/cancel` |
 | RefundOrder | POST | `/v1/orders/{order_id}/refund` |
 
-## 🚀 Запуск
+## Запуск
 
 ### Локально
 
@@ -232,7 +234,7 @@ EXPOSE 8080
 CMD ["sh", "-c", "./order-service & ./gateway-service"]
 ```
 
-## 📊 OpenAPI/Swagger
+## OpenAPI/Swagger
 
 ### Генерация OpenAPI спецификации
 
@@ -264,7 +266,7 @@ services:
 
 Доступ: http://localhost:8081
 
-## 🔍 Отладка
+## Отладка
 
 ### Логирование
 
@@ -296,7 +298,7 @@ func allowCORS(h http.Handler) http.Handler {
 http.ListenAndServe(":8080", allowCORS(mux))
 ```
 
-## 📝 Best Practices
+## Best Practices
 
 ### 1. Версионирование API
 
@@ -339,7 +341,7 @@ mux.HandlePath("GET", "/health", func(w http.ResponseWriter, r *http.Request, pa
 })
 ```
 
-## 🧪 Тестирование
+## Тестирование
 
 ### Unit тесты
 
@@ -372,7 +374,7 @@ make run
 curl http://localhost:8080/v1/orders
 ```
 
-## 🔗 Дополнительные ресурсы
+## Дополнительные ресурсы
 
 - [gRPC-Gateway Documentation](https://grpc-ecosystem.github.io/grpc-gateway/)
 - [Google API Design Guide](https://cloud.google.com/apis/design)
@@ -380,4 +382,4 @@ curl http://localhost:8080/v1/orders
 
 ---
 
-**✅ gRPC-Gateway готов к использованию!**
+** gRPC-Gateway готов к использованию!**

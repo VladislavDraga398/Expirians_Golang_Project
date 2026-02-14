@@ -1,11 +1,11 @@
-🎉 OMS has been deployed!
+OMS release deployed.
 
-📊 Release Information:
+Release Information:
   Name:      {{ .Release.Name }}
   Namespace: {{ .Release.Namespace }}
   Revision:  {{ .Release.Revision }}
 
-🚀 Application Status:
+Application Status:
   {{- if .Values.autoscaling.enabled }}
   Replicas:  {{ .Values.autoscaling.minReplicas }}-{{ .Values.autoscaling.maxReplicas }} (autoscaling enabled)
   {{- else }}
@@ -13,12 +13,11 @@
   {{- end }}
   Image:     {{ include "oms.image" . }}
 
-📡 Service Endpoints:
+Service Endpoints:
   gRPC:      {{ include "oms.fullname" . }}:{{ .Values.service.grpcPort }}
   Metrics:   {{ include "oms.fullname" . }}:{{ .Values.service.metricsPort }}
 
-🔍 Useful Commands:
-
+Useful Commands:
   # Check pod status
   kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "oms.name" . }}
 
@@ -36,14 +35,12 @@
   # Port forward for local testing
   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "oms.fullname" . }} {{ .Values.service.grpcPort }}:{{ .Values.service.grpcPort }}
 
-📚 Documentation:
+Documentation:
   https://github.com/vladislavdragonenkov/oms
 
-💡 Tips:
-  - Metrics are available at http://localhost:{{ .Values.service.metricsPort }}/metrics
-  - Health check at http://localhost:{{ .Values.service.metricsPort }}/healthz
+Tips:
+  - Metrics: http://localhost:{{ .Values.service.metricsPort }}/metrics
+  - Health:  http://localhost:{{ .Values.service.metricsPort }}/healthz
   {{- if .Values.monitoring.enabled }}
   - Prometheus scraping is enabled
   {{- end }}
-
-Happy ordering! 🛒

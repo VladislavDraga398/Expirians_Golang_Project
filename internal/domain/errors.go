@@ -43,9 +43,24 @@ var (
 	ErrPaymentTemporary = errors.New("payment temporary error")
 	// ErrOutboxPublish — ошибка при публикации сообщения из outbox.
 	ErrOutboxPublish = errors.New("outbox publish failed")
+	// ErrIdempotencyKeyRequired — отсутствует обязательный idempotency-key.
+	ErrIdempotencyKeyRequired = errors.New("idempotency key is required")
+	// ErrIdempotencyRequestHashRequired — отсутствует hash тела запроса для проверки replays.
+	ErrIdempotencyRequestHashRequired = errors.New("idempotency request hash is required")
+	// ErrIdempotencyKeyNotFound — ключ идемпотентности не найден.
+	ErrIdempotencyKeyNotFound = errors.New("idempotency key not found")
+	// ErrIdempotencyKeyAlreadyExists — ключ уже создан ранее.
+	ErrIdempotencyKeyAlreadyExists = errors.New("idempotency key already exists")
+	// ErrIdempotencyHashMismatch — ключ переиспользован с другим телом запроса.
+	ErrIdempotencyHashMismatch = errors.New("idempotency request hash mismatch")
 )
 
 // IsVersionConflict проверяет, является ли ошибка конфликтом версий.
 func IsVersionConflict(err error) bool {
 	return errors.Is(err, ErrOrderVersionConflict)
+}
+
+// IsIdempotencyConflict возвращает true для коллизий ключа/запроса.
+func IsIdempotencyConflict(err error) bool {
+	return errors.Is(err, ErrIdempotencyKeyAlreadyExists) || errors.Is(err, ErrIdempotencyHashMismatch)
 }

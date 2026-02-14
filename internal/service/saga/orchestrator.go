@@ -2,6 +2,7 @@ package saga
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -10,6 +11,8 @@ import (
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
 	"github.com/vladislavdragonenkov/oms/internal/metrics"
 )
+
+var errSagaTerminated = errors.New("saga terminated due to terminal order status")
 
 // Orchestrator описывает интерфейс управления сагой.
 type Orchestrator interface {
@@ -106,6 +109,7 @@ func (o *orchestrator) Start(orderID string) {
 	start := time.Now()
 	if o.metrics != nil {
 		o.metrics.RecordSagaStarted()
+		defer o.metrics.RecordSagaInFlightFinished()
 	}
 	defer func() {
 		if o.metrics != nil {
@@ -194,6 +198,10 @@ func (o *orchestrator) handlePayment(order *domain.Order) error {
 func (o *orchestrator) handleConfirm(order *domain.Order) {
 	o.logger.WithField("order_id", order.ID).Debug("handleConfirm called")
 	if err := o.updateStatus(order, domain.OrderStatusConfirmed); err != nil {
+		if errors.Is(err, errSagaTerminated) {
+			o.logger.WithField("order_id", order.ID).Info("confirm skipped: order reached terminal state")
+			return
+		}
 		o.logger.WithError(err).WithField("order_id", order.ID).Error("confirm failed")
 		if o.metrics != nil {
 			o.metrics.RecordSagaFailed()
@@ -214,7 +222,8 @@ func (o *orchestrator) handleConfirm(order *domain.Order) {
 
 func (o *orchestrator) Cancel(orderID, reason string) {
 	if o.metrics != nil {
-		o.metrics.RecordSagaCanceled()
+		o.metrics.RecordSagaInFlightStarted()
+		defer o.metrics.RecordSagaInFlightFinished()
 	}
 
 	order, err := o.orders.Get(orderID)
@@ -265,17 +274,24 @@ func (o *orchestrator) Cancel(orderID, reason string) {
 		"reason":      reason,
 		"customer_id": order.CustomerID,
 	})
+	if o.metrics != nil {
+		o.metrics.RecordSagaCanceled()
+	}
 }
 
 // Refund инициирует возврат средств и переводит заказ в статус refunded.
 func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) {
 	if o.metrics != nil {
-		o.metrics.RecordSagaRefunded()
+		o.metrics.RecordSagaInFlightStarted()
+		defer o.metrics.RecordSagaInFlightFinished()
 	}
 
 	order, err := o.orders.Get(orderID)
 	if err != nil {
 		o.logger.WithError(err).WithField("order_id", orderID).Warn("order not found for refund")
+		if o.metrics != nil {
+			o.metrics.RecordSagaFailed()
+		}
 		return
 	}
 
@@ -299,6 +315,9 @@ func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) 
 	status, payErr := o.payments.Refund(order.ID, amountMinor, order.Currency)
 	if payErr != nil {
 		o.logger.WithError(payErr).WithField("order_id", order.ID).Warn("refund failed")
+		if o.metrics != nil {
+			o.metrics.RecordSagaFailed()
+		}
 		return
 	}
 	if status != domain.PaymentStatusRefunded {
@@ -306,6 +325,9 @@ func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) 
 			"order_id": order.ID,
 			"status":   status,
 		}).Warn("unexpected refund status")
+		if o.metrics != nil {
+			o.metrics.RecordSagaFailed()
+		}
 		return
 	}
 
@@ -330,6 +352,9 @@ func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) 
 		"reason":      reason,
 		"customer_id": order.CustomerID,
 	})
+	if o.metrics != nil {
+		o.metrics.RecordSagaRefunded()
+	}
 }
 
 func (o *orchestrator) failOrder(order *domain.Order, status domain.OrderStatus, rootErr error) {
@@ -371,6 +396,16 @@ func (o *orchestrator) updateStatus(order *domain.Order, newStatus domain.OrderS
 	const baseDelay = 10 * time.Millisecond
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		if (order.Status == domain.OrderStatusCanceled || order.Status == domain.OrderStatusRefunded) &&
+			newStatus != order.Status {
+			o.logger.WithFields(log.Fields{
+				"order_id":     order.ID,
+				"order_status": order.Status,
+				"next_status":  newStatus,
+			}).Info("skip status transition for terminal order state")
+			return errSagaTerminated
+		}
+
 		previousStatus := order.Status
 		order.Status = newStatus
 		order.UpdatedAt = time.Now().UTC()

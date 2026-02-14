@@ -79,30 +79,36 @@ func NewSagaMetrics() *SagaMetrics {
 // RecordSagaStarted увеличивает счётчик запущенных саг.
 func (m *SagaMetrics) RecordSagaStarted() {
 	m.sagaStarted.Inc()
-	m.activeSagas.Inc()
+	m.RecordSagaInFlightStarted()
 }
 
 // RecordSagaCanceled увеличивает счётчик отменённых саг.
 func (m *SagaMetrics) RecordSagaCanceled() {
 	m.sagaCanceled.Inc()
-	m.activeSagas.Dec()
 }
 
 // RecordSagaRefunded увеличивает счётчик возвращённых саг.
 func (m *SagaMetrics) RecordSagaRefunded() {
 	m.sagaRefunded.Inc()
-	m.activeSagas.Dec()
 }
 
 // RecordSagaCompleted увеличивает счётчик завершённых саг.
 func (m *SagaMetrics) RecordSagaCompleted() {
 	m.sagaCompleted.Inc()
-	m.activeSagas.Dec()
 }
 
 // RecordSagaFailed увеличивает счётчик неудачных саг.
 func (m *SagaMetrics) RecordSagaFailed() {
 	m.sagaFailed.Inc()
+}
+
+// RecordSagaInFlightStarted увеличивает количество активных саг.
+func (m *SagaMetrics) RecordSagaInFlightStarted() {
+	m.activeSagas.Inc()
+}
+
+// RecordSagaInFlightFinished уменьшает количество активных саг.
+func (m *SagaMetrics) RecordSagaInFlightFinished() {
 	m.activeSagas.Dec()
 }
 

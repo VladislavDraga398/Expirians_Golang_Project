@@ -18,19 +18,19 @@ const (
 
 // Check представляет проверку здоровья компонента
 type Check struct {
-	Name     string        `json:"name"`
-	Status   Status        `json:"status"`
-	Message  string        `json:"message,omitempty"`
-	Duration time.Duration `json:"duration_ms"`
+	Name       string `json:"name"`
+	Status     Status `json:"status"`
+	Message    string `json:"message,omitempty"`
+	DurationMs int64  `json:"duration_ms"`
 }
 
 // Response представляет ответ health check
 type Response struct {
-	Status    Status           `json:"status"`
-	Timestamp time.Time        `json:"timestamp"`
-	Checks    map[string]Check `json:"checks,omitempty"`
-	Version   string           `json:"version,omitempty"`
-	Uptime    time.Duration    `json:"uptime_seconds"`
+	Status        Status           `json:"status"`
+	Timestamp     time.Time        `json:"timestamp"`
+	Checks        map[string]Check `json:"checks,omitempty"`
+	Version       string           `json:"version,omitempty"`
+	UptimeSeconds int64            `json:"uptime_seconds"`
 }
 
 // Checker интерфейс для проверки здоровья компонента
@@ -63,7 +63,7 @@ func (h *Handler) RegisterChecker(name string, checker Checker) {
 }
 
 // ServeHTTP обрабатывает HTTP запрос
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	h.mu.RLock()
 	checkers := make(map[string]Checker, len(h.checkers))
 	for k, v := range h.checkers {
@@ -89,11 +89,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Формируем ответ
 	response := Response{
-		Status:    overallStatus,
-		Timestamp: time.Now(),
-		Checks:    checks,
-		Version:   h.version,
-		Uptime:    time.Since(h.startTime).Round(time.Second),
+		Status:        overallStatus,
+		Timestamp:     time.Now(),
+		Checks:        checks,
+		Version:       h.version,
+		UptimeSeconds: int64(time.Since(h.startTime).Seconds()),
 	}
 
 	// Устанавливаем HTTP статус
@@ -108,13 +108,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // LivenessHandler простой liveness probe (всегда возвращает 200)
-func LivenessHandler(w http.ResponseWriter, r *http.Request) {
+func LivenessHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
 }
 
 // ReadinessHandler проверяет готовность к обработке запросов
-func (h *Handler) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ReadinessHandler(w http.ResponseWriter, _ *http.Request) {
 	h.mu.RLock()
 	checkers := make(map[string]Checker, len(h.checkers))
 	for k, v := range h.checkers {
@@ -158,16 +158,16 @@ func (c *SimpleChecker) Check() Check {
 
 	if err != nil {
 		return Check{
-			Name:     c.name,
-			Status:   StatusUnhealthy,
-			Message:  err.Error(),
-			Duration: duration,
+			Name:       c.name,
+			Status:     StatusUnhealthy,
+			Message:    err.Error(),
+			DurationMs: duration.Milliseconds(),
 		}
 	}
 
 	return Check{
-		Name:     c.name,
-		Status:   StatusHealthy,
-		Duration: duration,
+		Name:       c.name,
+		Status:     StatusHealthy,
+		DurationMs: duration.Milliseconds(),
 	}
 }
