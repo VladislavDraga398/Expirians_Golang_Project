@@ -1,10 +1,10 @@
 package metrics
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 // SagaMetrics содержит метрики для saga операций.
@@ -30,50 +30,118 @@ type SagaMetrics struct {
 
 // NewSagaMetrics создаёт новый экземпляр метрик saga.
 func NewSagaMetrics() *SagaMetrics {
+	return newSagaMetricsWithRegisterer(prometheus.DefaultRegisterer)
+}
+
+func newSagaMetricsWithRegisterer(registerer prometheus.Registerer) *SagaMetrics {
+	if registerer == nil {
+		registerer = prometheus.DefaultRegisterer
+	}
+
 	return &SagaMetrics{
-		sagaStarted: promauto.NewCounter(prometheus.CounterOpts{
+		sagaStarted: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_saga_started_total",
 			Help: "Total number of saga operations started",
 		}),
-		sagaCanceled: promauto.NewCounter(prometheus.CounterOpts{
+		sagaCanceled: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_saga_canceled_total",
 			Help: "Total number of saga operations canceled",
 		}),
-		sagaRefunded: promauto.NewCounter(prometheus.CounterOpts{
+		sagaRefunded: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_saga_refunded_total",
 			Help: "Total number of saga operations refunded",
 		}),
-		sagaCompleted: promauto.NewCounter(prometheus.CounterOpts{
+		sagaCompleted: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_saga_completed_total",
 			Help: "Total number of saga operations completed successfully",
 		}),
-		sagaFailed: promauto.NewCounter(prometheus.CounterOpts{
+		sagaFailed: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_saga_failed_total",
 			Help: "Total number of saga operations failed",
 		}),
-		sagaDuration: promauto.NewHistogram(prometheus.HistogramOpts{
+		sagaDuration: registerHistogram(registerer, prometheus.HistogramOpts{
 			Name:    "oms_saga_duration_seconds",
 			Help:    "Duration of saga operations in seconds",
 			Buckets: prometheus.DefBuckets,
 		}),
-		stepDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		stepDuration: registerHistogramVec(registerer, prometheus.HistogramOpts{
 			Name:    "oms_saga_step_duration_seconds",
 			Help:    "Duration of individual saga steps in seconds",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0},
 		}, []string{"step"}),
-		timelineEvents: promauto.NewCounter(prometheus.CounterOpts{
+		timelineEvents: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_timeline_events_total",
 			Help: "Total number of timeline events recorded",
 		}),
-		outboxEvents: promauto.NewCounter(prometheus.CounterOpts{
+		outboxEvents: registerCounter(registerer, prometheus.CounterOpts{
 			Name: "oms_outbox_events_total",
 			Help: "Total number of outbox events published",
 		}),
-		activeSagas: promauto.NewGauge(prometheus.GaugeOpts{
+		activeSagas: registerGauge(registerer, prometheus.GaugeOpts{
 			Name: "oms_active_sagas",
 			Help: "Number of currently active saga operations",
 		}),
 	}
+}
+
+func registerCounter(registerer prometheus.Registerer, opts prometheus.CounterOpts) prometheus.Counter {
+	collector := prometheus.NewCounter(opts)
+	if err := registerer.Register(collector); err != nil {
+		if alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			existing, ok := alreadyRegistered.ExistingCollector.(prometheus.Counter)
+			if !ok {
+				panic(fmt.Sprintf("collector %q already registered with unexpected type", opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("register counter %q: %v", opts.Name, err))
+	}
+	return collector
+}
+
+func registerGauge(registerer prometheus.Registerer, opts prometheus.GaugeOpts) prometheus.Gauge {
+	collector := prometheus.NewGauge(opts)
+	if err := registerer.Register(collector); err != nil {
+		if alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			existing, ok := alreadyRegistered.ExistingCollector.(prometheus.Gauge)
+			if !ok {
+				panic(fmt.Sprintf("collector %q already registered with unexpected type", opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("register gauge %q: %v", opts.Name, err))
+	}
+	return collector
+}
+
+func registerHistogram(registerer prometheus.Registerer, opts prometheus.HistogramOpts) prometheus.Histogram {
+	collector := prometheus.NewHistogram(opts)
+	if err := registerer.Register(collector); err != nil {
+		if alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			existing, ok := alreadyRegistered.ExistingCollector.(prometheus.Histogram)
+			if !ok {
+				panic(fmt.Sprintf("collector %q already registered with unexpected type", opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("register histogram %q: %v", opts.Name, err))
+	}
+	return collector
+}
+
+func registerHistogramVec(registerer prometheus.Registerer, opts prometheus.HistogramOpts, labels []string) *prometheus.HistogramVec {
+	collector := prometheus.NewHistogramVec(opts, labels)
+	if err := registerer.Register(collector); err != nil {
+		if alreadyRegistered, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			existing, ok := alreadyRegistered.ExistingCollector.(*prometheus.HistogramVec)
+			if !ok {
+				panic(fmt.Sprintf("collector %q already registered with unexpected type", opts.Name))
+			}
+			return existing
+		}
+		panic(fmt.Sprintf("register histogram vec %q: %v", opts.Name, err))
+	}
+	return collector
 }
 
 // RecordSagaStarted увеличивает счётчик запущенных саг.

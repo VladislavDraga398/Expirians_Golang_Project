@@ -28,11 +28,9 @@ func TestStartMetricsServer_Endpoints(t *testing.T) {
 	healthHandler := healthcheck.NewHandler(version.GetVersion())
 	srv := startMetricsServer(ctx, addr, logger, healthHandler)
 
-	// Даём время на запуск
-	time.Sleep(100 * time.Millisecond)
-
 	// Проверяем /metrics
 	metricsURL := fmt.Sprintf("http://localhost:%d/metrics", port)
+	waitForHTTPStatus(t, metricsURL, http.StatusOK, 2*time.Second)
 	resp, err := http.Get(metricsURL)
 	if err != nil {
 		t.Fatalf("failed to get /metrics: %v", err)
@@ -93,7 +91,7 @@ func TestStartMetricsServer_Endpoints(t *testing.T) {
 
 	// Cleanup
 	cancel()
-	time.Sleep(100 * time.Millisecond)
+	waitForHTTPFailure(t, metricsURL, 2*time.Second)
 
 	// Verify server is not nil
 	if srv == nil {
@@ -112,28 +110,13 @@ func TestStartMetricsServer_Shutdown(t *testing.T) {
 	healthHandler := healthcheck.NewHandler(version.GetVersion())
 	srv := startMetricsServer(ctx, addr, logger, healthHandler)
 
-	// Даём время на запуск
-	time.Sleep(100 * time.Millisecond)
-
 	// Проверяем что сервер работает
 	url := fmt.Sprintf("http://localhost:%d/livez", port)
-	resp, err := http.Get(url)
-	if err != nil {
-		t.Fatalf("server should be running: %v", err)
-	}
-	resp.Body.Close()
+	waitForHTTPStatus(t, url, http.StatusOK, 2*time.Second)
 
 	// Отменяем контекст
 	cancel()
-
-	// Даём время на shutdown
-	time.Sleep(200 * time.Millisecond)
-
-	// Проверяем что сервер остановился
-	_, err = http.Get(url)
-	if err == nil {
-		t.Error("server should be stopped after context cancellation")
-	}
+	waitForHTTPFailure(t, url, 2*time.Second)
 
 	if srv == nil {
 		t.Error("startMetricsServer should not return nil")
@@ -165,26 +148,15 @@ func TestShutdownHTTP_WithServer(t *testing.T) {
 		_ = srv.ListenAndServe()
 	}()
 
-	// Даём время на запуск
-	time.Sleep(100 * time.Millisecond)
-
 	// Проверяем что работает
 	url := fmt.Sprintf("http://localhost:%d/test", port)
-	resp, err := http.Get(url)
-	if err != nil {
-		t.Fatalf("server should be running: %v", err)
-	}
-	resp.Body.Close()
+	waitForHTTPStatus(t, url, http.StatusOK, 2*time.Second)
 
 	// Останавливаем
 	shutdownHTTP(srv, logger)
 
 	// Проверяем что остановился
-	time.Sleep(100 * time.Millisecond)
-	_, err = http.Get(url)
-	if err == nil {
-		t.Error("server should be stopped after shutdownHTTP")
-	}
+	waitForHTTPFailure(t, url, 2*time.Second)
 }
 
 func TestStartMetricsServer_InvalidAddr(t *testing.T) {
@@ -225,8 +197,6 @@ func TestStartMetricsServer_MultipleEndpoints(t *testing.T) {
 	healthHandler := healthcheck.NewHandler(version.GetVersion())
 	srv := startMetricsServer(ctx, addr, logger, healthHandler)
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Проверяем все endpoints
 	endpoints := []string{
 		fmt.Sprintf("http://localhost:%d/metrics", port),
@@ -236,6 +206,7 @@ func TestStartMetricsServer_MultipleEndpoints(t *testing.T) {
 	}
 
 	for _, url := range endpoints {
+		waitForHTTPStatus(t, url, http.StatusOK, 2*time.Second)
 		resp, err := http.Get(url)
 		if err != nil {
 			t.Errorf("failed to get %s: %v", url, err)
@@ -251,6 +222,51 @@ func TestStartMetricsServer_MultipleEndpoints(t *testing.T) {
 	if srv == nil {
 		t.Error("server should not be nil")
 	}
+}
+
+func waitForHTTPStatus(t *testing.T, url string, expectedStatus int, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	var lastStatus int
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err != nil {
+			lastErr = err
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+
+		lastStatus = resp.StatusCode
+		resp.Body.Close()
+		if resp.StatusCode == expectedStatus {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if lastErr != nil {
+		t.Fatalf("timeout waiting for %s status %d: last error: %v", url, expectedStatus, lastErr)
+	}
+	t.Fatalf("timeout waiting for %s status %d: last status %d", url, expectedStatus, lastStatus)
+}
+
+func waitForHTTPFailure(t *testing.T, url string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err != nil {
+			return
+		}
+		resp.Body.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	t.Fatalf("expected %s to become unreachable within %s", url, timeout)
 }
 
 // findFreePort находит свободный порт для тестов

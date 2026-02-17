@@ -56,6 +56,29 @@ func TestNewSagaMetrics(t *testing.T) {
 	}
 }
 
+func TestNewSagaMetrics_IsIdempotentForRegistry(t *testing.T) {
+	registry := prometheus.NewRegistry()
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("newSagaMetricsWithRegisterer should not panic on duplicate registration: %v", recovered)
+		}
+	}()
+
+	first := newSagaMetricsWithRegisterer(registry)
+	second := newSagaMetricsWithRegisterer(registry)
+
+	if first == nil || second == nil {
+		t.Fatal("expected non-nil metrics instances")
+	}
+	if first.sagaStarted != second.sagaStarted {
+		t.Error("expected sagaStarted collector to be reused")
+	}
+	if first.stepDuration != second.stepDuration {
+		t.Error("expected stepDuration collector to be reused")
+	}
+}
+
 func TestRecordSagaStarted(t *testing.T) {
 	// Create isolated metrics with a custom registry
 	reg := prometheus.NewRegistry()
