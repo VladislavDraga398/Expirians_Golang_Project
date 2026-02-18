@@ -4,18 +4,19 @@ services:
     build:
       context: .
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      - OMS_GRPC_ADDR=${OMS_GRPC_ADDR}
-      - OMS_METRICS_ADDR=${OMS_METRICS_ADDR}
+      - OMS_GRPC_ADDR=${OMS_GRPC_ADDR:-:50051}
+      - OMS_METRICS_ADDR=${OMS_METRICS_ADDR:-:9090}
       - OMS_STORAGE_DRIVER=${OMS_STORAGE_DRIVER:-memory}
       - OMS_POSTGRES_DSN=${OMS_POSTGRES_DSN:-postgres://oms:oms@postgres:5432/oms?sslmode=disable}
       - OMS_POSTGRES_AUTO_MIGRATE=${OMS_POSTGRES_AUTO_MIGRATE:-true}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
     ports:
-      - "${OMS_GRPC_PORT}:${OMS_GRPC_PORT}"
-      - "${OMS_METRICS_PORT}:${OMS_METRICS_PORT}"
+      - "${OMS_GRPC_PORT:-50051}:${OMS_GRPC_PORT:-50051}"
+      - "${OMS_METRICS_PORT:-9090}:${OMS_METRICS_PORT:-9090}"
     restart: unless-stopped
     networks:
       - monitoring
@@ -56,7 +57,7 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
     ports:
-      - "${PROM_UI_PORT}:9090"  # Prometheus UI
+      - "${PROM_UI_PORT:-9091}:9090"  # Prometheus UI
     restart: unless-stopped
     networks:
       - monitoring
@@ -72,7 +73,7 @@ services:
     image: grafana/grafana:latest
     container_name: grafana
     ports:
-      - "${GRAFANA_UI_PORT}:3000"
+      - "${GRAFANA_UI_PORT:-3000}:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin

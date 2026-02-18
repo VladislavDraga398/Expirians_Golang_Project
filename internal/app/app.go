@@ -323,7 +323,11 @@ func startMetricsServer(ctx context.Context, addr string, logger *log.Entry, hea
 		mux.HandleFunc("/readyz", handler.ReadinessHandler)
 	}
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
 		logger.Infof("метрики доступны по адресу %s/metrics", addr)
 		logger.Infof("health checks: %s/healthz, %s/livez, %s/readyz", addr, addr, addr)

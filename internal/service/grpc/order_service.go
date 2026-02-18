@@ -526,25 +526,39 @@ func decodeIdempotencyFailure(record domain.IdempotencyRecord) error {
 	if len(record.ResponseBody) > 0 {
 		var payload idempotencyErrorPayload
 		if err := json.Unmarshal(record.ResponseBody, &payload); err == nil {
-			code := codes.Code(payload.Code) //nolint:gosec // Value comes from internal serialized enum payload.
-			if code == codes.OK {
-				code = codes.Internal
+			if code, ok := grpcCodeFromInt32(payload.Code); ok {
+				if code == codes.OK {
+					code = codes.Internal
+				}
+				if payload.Message == "" {
+					payload.Message = "previous request with the same idempotency key failed"
+				}
+				return status.Error(code, payload.Message)
 			}
-			if payload.Message == "" {
-				payload.Message = "previous request with the same idempotency key failed"
-			}
-			return status.Error(code, payload.Message)
 		}
 	}
 
 	if record.HTTPStatus > 0 {
-		code := codes.Code(record.HTTPStatus) //nolint:gosec // Value is produced from int(codes.Code) in repository writes.
-		if code != codes.OK {
+		if code, ok := grpcCodeFromInt(record.HTTPStatus); ok && code != codes.OK {
 			return status.Error(code, "previous request with the same idempotency key failed")
 		}
 	}
 
 	return status.Error(codes.Internal, "previous request with the same idempotency key failed")
+}
+
+func grpcCodeFromInt32(value int32) (codes.Code, bool) {
+	if value < int32(codes.OK) || value > int32(codes.Unauthenticated) {
+		return codes.Internal, false
+	}
+	return codes.Code(uint32(value)), true
+}
+
+func grpcCodeFromInt(value int) (codes.Code, bool) {
+	if value < int(codes.OK) || value > int(codes.Unauthenticated) {
+		return codes.Internal, false
+	}
+	return codes.Code(uint32(value)), true
 }
 
 func readIdempotencyKey(ctx context.Context) (string, error) {
