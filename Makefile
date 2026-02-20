@@ -24,7 +24,7 @@ LDFLAGS ?= -s -w \
 
 .PHONY: all help clean clean-all \
         proto generate tidy deps \
-        build run migrate-up migrate-down migrate-status \
+        build run migrate-up migrate-down migrate-status dlq-reprocess \
         test test-v test-race test-race-v test-unit test-integration test-saga test-kafka test-grpc test-short test-count test-failfast \
         cover cover-race bench \
         fmt vet lint lint-install staticcheck \
@@ -98,6 +98,16 @@ migrate-down: ## Откатить SQL миграции на N шагов (MIGRAT
 
 migrate-status: ## Показать статус SQL миграций
 	OMS_POSTGRES_DSN="$(OMS_POSTGRES_DSN)" $(GO) run ./cmd/migrate -direction status
+
+dlq-reprocess: ## Controlled replay сообщений из DLQ (по умолчанию dry-run)
+	KAFKA_BROKERS="$(KAFKA_BROKERS)" $(GO) run ./cmd/dlq-reprocess \
+		-brokers "$${BROKERS:-$${KAFKA_BROKERS}}" \
+		-source-topic "$${SOURCE_TOPIC:-oms.dlq}" \
+		-target-topic "$${TARGET_TOPIC:-oms.order.events}" \
+		-limit "$${LIMIT:-100}" \
+		-idle-timeout "$${IDLE_TIMEOUT:-2s}" \
+		$${FROM_NEWEST:+-from-newest} \
+		$${EXECUTE:+-execute}
 
 # ========================================================================
 # ТЕСТИРОВАНИЕ

@@ -18,18 +18,20 @@ import (
 )
 
 const (
-	envLogLevel              = "LOG_LEVEL"
-	envGRPCAddr              = "OMS_GRPC_ADDR"
-	envMetricsAddr           = "OMS_METRICS_ADDR"
-	envStorageDriver         = "OMS_STORAGE_DRIVER"
-	envPostgresDSN           = "OMS_POSTGRES_DSN"
-	envPostgresAutoMigrate   = "OMS_POSTGRES_AUTO_MIGRATE"
-	envAllowMockIntegrations = "OMS_ALLOW_MOCK_INTEGRATIONS"
-	envOutboxPollInterval    = "OMS_OUTBOX_POLL_INTERVAL"
-	envOutboxBatchSize       = "OMS_OUTBOX_BATCH_SIZE"
-	envOutboxMaxAttempts     = "OMS_OUTBOX_MAX_ATTEMPTS"
-	envOutboxRetryDelay      = "OMS_OUTBOX_RETRY_DELAY"
-	envOutboxMaxPending      = "OMS_OUTBOX_MAX_PENDING"
+	envLogLevel                    = "LOG_LEVEL"
+	envGRPCAddr                    = "OMS_GRPC_ADDR"
+	envMetricsAddr                 = "OMS_METRICS_ADDR"
+	envStorageDriver               = "OMS_STORAGE_DRIVER"
+	envPostgresDSN                 = "OMS_POSTGRES_DSN"
+	envPostgresAutoMigrate         = "OMS_POSTGRES_AUTO_MIGRATE"
+	envAllowMockIntegrations       = "OMS_ALLOW_MOCK_INTEGRATIONS"
+	envOutboxPollInterval          = "OMS_OUTBOX_POLL_INTERVAL"
+	envOutboxBatchSize             = "OMS_OUTBOX_BATCH_SIZE"
+	envOutboxMaxAttempts           = "OMS_OUTBOX_MAX_ATTEMPTS"
+	envOutboxRetryDelay            = "OMS_OUTBOX_RETRY_DELAY"
+	envOutboxMaxPending            = "OMS_OUTBOX_MAX_PENDING"
+	envIdempotencyCleanupInterval  = "OMS_IDEMPOTENCY_CLEANUP_INTERVAL"
+	envIdempotencyCleanupBatchSize = "OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE"
 )
 
 type configWarning struct {
@@ -152,6 +154,24 @@ func readConfigFromEnv(lookup envLookup) (app.Config, []configWarning) {
 		}
 	}
 
+	if raw, ok := lookupEnvTrimmed(lookup, envIdempotencyCleanupInterval); ok {
+		value, err := parseDuration(raw, func(d time.Duration) bool { return d >= 0 }, "must be >= 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envIdempotencyCleanupInterval, value: raw, err: err})
+		} else {
+			cfg.IdempotencyCleanupInterval = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envIdempotencyCleanupBatchSize); ok {
+		value, err := parseInt(raw, func(v int) bool { return v > 0 }, "must be > 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envIdempotencyCleanupBatchSize, value: raw, err: err})
+		} else {
+			cfg.IdempotencyCleanupBatchSize = value
+		}
+	}
+
 	return cfg, warnings
 }
 
@@ -210,17 +230,19 @@ func main() {
 	defer stop()
 
 	log.WithFields(log.Fields{
-		"grpc_addr":               cfg.GRPCAddr,
-		"metrics_addr":            cfg.MetricsAddr,
-		"storage_driver":          cfg.StorageDriver,
-		"postgres_auto_migrate":   cfg.PostgresAutoMigrate,
-		"allow_mock_integrations": cfg.AllowMockIntegrations,
-		"outbox_poll_interval":    cfg.OutboxPollInterval.String(),
-		"outbox_batch_size":       cfg.OutboxBatchSize,
-		"outbox_max_attempts":     cfg.OutboxMaxAttempts,
-		"outbox_retry_delay":      cfg.OutboxRetryDelay.String(),
-		"outbox_max_pending":      cfg.OutboxMaxPending,
-		"build":                   version.String(),
+		"grpc_addr":                      cfg.GRPCAddr,
+		"metrics_addr":                   cfg.MetricsAddr,
+		"storage_driver":                 cfg.StorageDriver,
+		"postgres_auto_migrate":          cfg.PostgresAutoMigrate,
+		"allow_mock_integrations":        cfg.AllowMockIntegrations,
+		"outbox_poll_interval":           cfg.OutboxPollInterval.String(),
+		"outbox_batch_size":              cfg.OutboxBatchSize,
+		"outbox_max_attempts":            cfg.OutboxMaxAttempts,
+		"outbox_retry_delay":             cfg.OutboxRetryDelay.String(),
+		"outbox_max_pending":             cfg.OutboxMaxPending,
+		"idempotency_cleanup_interval":   cfg.IdempotencyCleanupInterval.String(),
+		"idempotency_cleanup_batch_size": cfg.IdempotencyCleanupBatchSize,
+		"build":                          version.String(),
 	}).Info("запускаем OrderService")
 
 	if err := app.Run(ctx, cfg); err != nil && !errors.Is(err, context.Canceled) {

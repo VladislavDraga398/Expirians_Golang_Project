@@ -2,7 +2,7 @@
 
 > Мониторинг, логирование и трейсинг
 
-**Версия:** v2.1 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.2 | **Обновлено:** 2026-02-20 | **Статус:** Актуально
 
 ---
 
@@ -21,6 +21,7 @@
 - Saga/бизнес: `oms_saga_started_total`, `oms_saga_completed_total`, `oms_saga_canceled_total`, `oms_saga_refunded_total`, `oms_saga_failed_total`, `oms_saga_duration_seconds_*`, `oms_saga_step_duration_seconds_*`, `oms_active_sagas`.
 - Timeline/Outbox: `oms_timeline_events_total`, `oms_outbox_events_total`.
 - Outbox backlog/runtime: `oms_outbox_publish_attempts_total{result}`, `oms_outbox_pending_records`, `oms_outbox_oldest_pending_age_seconds`.
+- Idempotency cleanup: `oms_idempotency_cleanup_runs_total{result}`, `oms_idempotency_cleanup_deleted_total`, `oms_idempotency_cleanup_last_deleted`.
 - Runtime: `go_*`, `process_*`.
 
 ## CI Observability Gate
@@ -56,6 +57,7 @@
 - Outbox: возраст старейшего pending > 10 мин; DLQ inflow > 5/мин (окно 5 мин).
 - Dependencies: CB открыт > 20% времени (10 мин); client error rate > 5% (5 мин).
 - Idempotency: processing-ключи > порога дольше 2 мин.
+- Локальный набор alert rules: `deploy/prometheus/alerts.yml`.
 
 ## Health/Readiness
 - Health включает проверки зависимостей (БД, брокер, бэклог publisher).

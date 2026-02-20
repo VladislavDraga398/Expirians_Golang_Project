@@ -2,7 +2,7 @@
 
 > Стратегии деплоя и развёртывания OMS
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.3 | **Обновлено:** 2026-02-20 | **Статус:** Актуально
 
 ---
 
@@ -55,6 +55,8 @@
 - `OMS_STORAGE_DRIVER=memory|postgres`
 - `OMS_POSTGRES_DSN=postgres://...`
 - `OMS_POSTGRES_AUTO_MIGRATE=true|false`
+- `OMS_IDEMPOTENCY_CLEANUP_INTERVAL=10m` (0 — отключить cleanup)
+- `OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE=500`
 
 ### Миграции
 - Локально/CI миграции запускаются через `cmd/migrate` (`up`, `down`, `status`).

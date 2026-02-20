@@ -127,6 +127,16 @@ make bench
 
 Полный список команд: `make help`
 
+### Controlled replay из DLQ
+
+```bash
+# Dry-run (ничего не публикует, только показывает кандидатов)
+make dlq-reprocess LIMIT=50
+
+# Реальный replay последних сообщений
+make dlq-reprocess LIMIT=50 EXECUTE=1 FROM_NEWEST=1
+```
+
 ## API Примеры
 
 ### CreateOrder

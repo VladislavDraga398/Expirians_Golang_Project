@@ -21,17 +21,19 @@ func TestReadConfigFromEnv_Defaults(t *testing.T) {
 
 func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 	cfg, warnings := readConfigFromEnv(mapLookup(map[string]string{
-		envGRPCAddr:              "localhost:50051",
-		envMetricsAddr:           "localhost:9090",
-		envStorageDriver:         " PoStGrEs ",
-		envPostgresDSN:           " postgres://oms:oms@localhost:5432/oms?sslmode=disable ",
-		envPostgresAutoMigrate:   "off",
-		envAllowMockIntegrations: "yes",
-		envOutboxPollInterval:    "2s",
-		envOutboxBatchSize:       "42",
-		envOutboxMaxAttempts:     "7",
-		envOutboxRetryDelay:      "0s",
-		envOutboxMaxPending:      "0",
+		envGRPCAddr:                    "localhost:50051",
+		envMetricsAddr:                 "localhost:9090",
+		envStorageDriver:               " PoStGrEs ",
+		envPostgresDSN:                 " postgres://oms:oms@localhost:5432/oms?sslmode=disable ",
+		envPostgresAutoMigrate:         "off",
+		envAllowMockIntegrations:       "yes",
+		envOutboxPollInterval:          "2s",
+		envOutboxBatchSize:             "42",
+		envOutboxMaxAttempts:           "7",
+		envOutboxRetryDelay:            "0s",
+		envOutboxMaxPending:            "0",
+		envIdempotencyCleanupInterval:  "30m",
+		envIdempotencyCleanupBatchSize: "123",
 	}))
 
 	if len(warnings) != 0 {
@@ -71,23 +73,31 @@ func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 	if cfg.OutboxMaxPending != 0 {
 		t.Fatalf("unexpected max pending: %d", cfg.OutboxMaxPending)
 	}
+	if cfg.IdempotencyCleanupInterval != 30*time.Minute {
+		t.Fatalf("unexpected idempotency cleanup interval: %s", cfg.IdempotencyCleanupInterval)
+	}
+	if cfg.IdempotencyCleanupBatchSize != 123 {
+		t.Fatalf("unexpected idempotency cleanup batch size: %d", cfg.IdempotencyCleanupBatchSize)
+	}
 }
 
 func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
 	defaultCfg := app.DefaultConfig()
 
 	cfg, warnings := readConfigFromEnv(mapLookup(map[string]string{
-		envPostgresAutoMigrate:   "not-bool",
-		envAllowMockIntegrations: "not-bool",
-		envOutboxPollInterval:    "-1s",
-		envOutboxBatchSize:       "0",
-		envOutboxMaxAttempts:     "bad",
-		envOutboxRetryDelay:      "invalid",
-		envOutboxMaxPending:      "-2",
+		envPostgresAutoMigrate:         "not-bool",
+		envAllowMockIntegrations:       "not-bool",
+		envOutboxPollInterval:          "-1s",
+		envOutboxBatchSize:             "0",
+		envOutboxMaxAttempts:           "bad",
+		envOutboxRetryDelay:            "invalid",
+		envOutboxMaxPending:            "-2",
+		envIdempotencyCleanupInterval:  "invalid",
+		envIdempotencyCleanupBatchSize: "0",
 	}))
 
-	if len(warnings) != 7 {
-		t.Fatalf("expected 7 warnings, got %d", len(warnings))
+	if len(warnings) != 9 {
+		t.Fatalf("expected 9 warnings, got %d", len(warnings))
 	}
 
 	if cfg.PostgresAutoMigrate != defaultCfg.PostgresAutoMigrate {
@@ -110,6 +120,12 @@ func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
 	}
 	if cfg.OutboxMaxPending != defaultCfg.OutboxMaxPending {
 		t.Fatal("expected OutboxMaxPending to keep default on invalid value")
+	}
+	if cfg.IdempotencyCleanupInterval != defaultCfg.IdempotencyCleanupInterval {
+		t.Fatal("expected IdempotencyCleanupInterval to keep default on invalid value")
+	}
+	if cfg.IdempotencyCleanupBatchSize != defaultCfg.IdempotencyCleanupBatchSize {
+		t.Fatal("expected IdempotencyCleanupBatchSize to keep default on invalid value")
 	}
 }
 

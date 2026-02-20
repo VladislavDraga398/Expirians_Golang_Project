@@ -23,6 +23,7 @@ import (
 	healthcheck "github.com/vladislavdragonenkov/oms/internal/health"
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
 	grpcsvc "github.com/vladislavdragonenkov/oms/internal/service/grpc"
+	idempotencysvc "github.com/vladislavdragonenkov/oms/internal/service/idempotency"
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	outboxsvc "github.com/vladislavdragonenkov/oms/internal/service/outbox"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
@@ -43,32 +44,36 @@ const (
 
 // Config описывает минимальные настройки запуска приложения.
 type Config struct {
-	GRPCAddr              string
-	MetricsAddr           string
-	StorageDriver         string
-	PostgresDSN           string
-	PostgresAutoMigrate   bool
-	AllowMockIntegrations bool
-	OutboxPollInterval    time.Duration
-	OutboxBatchSize       int
-	OutboxMaxAttempts     int
-	OutboxRetryDelay      time.Duration
-	OutboxMaxPending      int
+	GRPCAddr                    string
+	MetricsAddr                 string
+	StorageDriver               string
+	PostgresDSN                 string
+	PostgresAutoMigrate         bool
+	AllowMockIntegrations       bool
+	OutboxPollInterval          time.Duration
+	OutboxBatchSize             int
+	OutboxMaxAttempts           int
+	OutboxRetryDelay            time.Duration
+	OutboxMaxPending            int
+	IdempotencyCleanupInterval  time.Duration
+	IdempotencyCleanupBatchSize int
 }
 
 // DefaultConfig возвращает базовые адреса для gRPC и HTTP-метрик.
 func DefaultConfig() Config {
 	return Config{
-		GRPCAddr:              ":50051",
-		MetricsAddr:           ":9090",
-		StorageDriver:         StorageDriverMemory,
-		PostgresAutoMigrate:   true,
-		AllowMockIntegrations: false,
-		OutboxPollInterval:    time.Second,
-		OutboxBatchSize:       100,
-		OutboxMaxAttempts:     3,
-		OutboxRetryDelay:      50 * time.Millisecond,
-		OutboxMaxPending:      10000,
+		GRPCAddr:                    ":50051",
+		MetricsAddr:                 ":9090",
+		StorageDriver:               StorageDriverMemory,
+		PostgresAutoMigrate:         true,
+		AllowMockIntegrations:       false,
+		OutboxPollInterval:          time.Second,
+		OutboxBatchSize:             100,
+		OutboxMaxAttempts:           3,
+		OutboxRetryDelay:            50 * time.Millisecond,
+		OutboxMaxPending:            10000,
+		IdempotencyCleanupInterval:  10 * time.Minute,
+		IdempotencyCleanupBatchSize: 500,
 	}
 }
 
@@ -98,8 +103,26 @@ func Run(ctx context.Context, cfg Config) error {
 	var kafkaProducer *kafka.Producer
 	var outboxWorkerCancel context.CancelFunc
 	var outboxWorkerDone chan struct{}
+	var idempotencyCleanupCancel context.CancelFunc
+	var idempotencyCleanupDone chan struct{}
 	var outboxChecker healthcheck.Checker
 	var sagaOrchestrator saga.Orchestrator
+
+	if runtimeDeps.idempotencyRepo != nil && cfg.IdempotencyCleanupInterval > 0 {
+		cleanupWorker := idempotencysvc.NewCleanupWorker(
+			runtimeDeps.idempotencyRepo,
+			idempotencysvc.WithLogger(logger.WithField("component", "idempotency-cleanup-worker")),
+			idempotencysvc.WithInterval(cfg.IdempotencyCleanupInterval),
+			idempotencysvc.WithBatchSize(cfg.IdempotencyCleanupBatchSize),
+		)
+		cleanupCtx, cleanupCancel := context.WithCancel(ctx)
+		idempotencyCleanupCancel = cleanupCancel
+		idempotencyCleanupDone = make(chan struct{})
+		go func() {
+			defer close(idempotencyCleanupDone)
+			cleanupWorker.Run(cleanupCtx)
+		}()
+	}
 
 	rawKafkaBrokers := os.Getenv("KAFKA_BROKERS")
 	brokers := parseKafkaBrokers(rawKafkaBrokers)
@@ -215,6 +238,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 		shutdownOrderService(orderService, logger)
 		shutdownOutboxWorker(outboxWorkerCancel, outboxWorkerDone, logger)
+		shutdownIdempotencyCleanupWorker(idempotencyCleanupCancel, idempotencyCleanupDone, logger)
 
 		closeKafkaProducer(kafkaProducer, logger)
 
@@ -223,6 +247,7 @@ func Run(ctx context.Context, cfg Config) error {
 		shutdownOrderService(orderService, logger)
 		shutdownHTTP(metricsSrv, logger)
 		shutdownOutboxWorker(outboxWorkerCancel, outboxWorkerDone, logger)
+		shutdownIdempotencyCleanupWorker(idempotencyCleanupCancel, idempotencyCleanupDone, logger)
 		closeKafkaProducer(kafkaProducer, logger)
 
 		if errors.Is(err, grpc.ErrServerStopped) {
@@ -392,6 +417,20 @@ func shutdownOutboxWorker(cancel context.CancelFunc, done <-chan struct{}, logge
 	case <-done:
 	case <-time.After(gracefulShutdownTimeout):
 		logger.Warn("outbox worker shutdown timeout")
+	}
+}
+
+func shutdownIdempotencyCleanupWorker(cancel context.CancelFunc, done <-chan struct{}, logger *log.Entry) {
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(gracefulShutdownTimeout):
+		logger.Warn("idempotency cleanup worker shutdown timeout")
 	}
 }
 

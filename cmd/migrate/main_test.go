@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/vladislavdragonenkov/oms/internal/storage/postgres"
 )
+
+const defaultLocalMigrateTestDSN = "postgres://oms:oms@localhost:5432/oms?sslmode=disable"
 
 func withMigrateCLIArgs(t *testing.T, args []string, fn func()) {
 	t.Helper()
@@ -25,17 +31,42 @@ func withMigrateCLIArgs(t *testing.T, args []string, fn func()) {
 	fn()
 }
 
-func testPostgresDSN() string {
-	// Keep migration integration opt-in to avoid clashing with other packages
-	// that may use a shared local database during `go test ./...`.
-	return strings.TrimSpace(os.Getenv("OMS_POSTGRES_TEST_DSN"))
+func testPostgresDSN(t *testing.T) string {
+	t.Helper()
+
+	candidates := []string{
+		strings.TrimSpace(os.Getenv("OMS_POSTGRES_TEST_DSN")),
+		strings.TrimSpace(os.Getenv("OMS_POSTGRES_DSN")),
+		defaultLocalMigrateTestDSN,
+	}
+
+	seen := map[string]struct{}{}
+	for _, dsn := range candidates {
+		dsn = strings.TrimSpace(dsn)
+		if dsn == "" {
+			continue
+		}
+		if _, ok := seen[dsn]; ok {
+			continue
+		}
+		seen[dsn] = struct{}{}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		store, err := postgres.Open(ctx, dsn)
+		cancel()
+		if err != nil {
+			continue
+		}
+		_ = store.Close()
+		return dsn
+	}
+
+	t.Skip("postgres dsn is not available")
+	return ""
 }
 
 func TestMainStatusAndMigratePaths(t *testing.T) {
-	dsn := testPostgresDSN()
-	if dsn == "" {
-		t.Skip("set OMS_POSTGRES_TEST_DSN to run migration integration paths")
-	}
+	dsn := testPostgresDSN(t)
 
 	// status
 	withMigrateCLIArgs(t, []string{"-direction=status", "-dsn=" + dsn}, func() {
@@ -91,10 +122,7 @@ func TestFailExits(t *testing.T) {
 }
 
 func TestMainUnsupportedDirectionExits(t *testing.T) {
-	dsn := testPostgresDSN()
-	if dsn == "" {
-		t.Skip("set OMS_POSTGRES_TEST_DSN to run unsupported direction integration path")
-	}
+	dsn := testPostgresDSN(t)
 
 	if os.Getenv("MIGRATE_TEST_BAD_DIRECTION") == "1" {
 		withMigrateCLIArgs(t, []string{"-direction=bad", "-dsn=" + dsn}, func() {
