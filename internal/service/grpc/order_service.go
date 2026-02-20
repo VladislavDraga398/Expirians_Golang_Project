@@ -560,20 +560,52 @@ func decodeIdempotencyFailure(record domain.IdempotencyRecord) error {
 }
 
 func grpcCodeFromInt32(value int32) (codes.Code, bool) {
-	return grpcCodeFromInt(int(value))
+	return grpcCodeFromInt64(int64(value))
 }
 
 func grpcCodeFromInt(value int) (codes.Code, bool) {
-	if value < 0 {
+	return grpcCodeFromInt64(int64(value))
+}
+
+func grpcCodeFromInt64(value int64) (codes.Code, bool) {
+	switch value {
+	case 0:
+		return codes.OK, true
+	case 1:
+		return codes.Canceled, true
+	case 2:
+		return codes.Unknown, true
+	case 3:
+		return codes.InvalidArgument, true
+	case 4:
+		return codes.DeadlineExceeded, true
+	case 5:
+		return codes.NotFound, true
+	case 6:
+		return codes.AlreadyExists, true
+	case 7:
+		return codes.PermissionDenied, true
+	case 8:
+		return codes.ResourceExhausted, true
+	case 9:
+		return codes.FailedPrecondition, true
+	case 10:
+		return codes.Aborted, true
+	case 11:
+		return codes.OutOfRange, true
+	case 12:
+		return codes.Unimplemented, true
+	case 13:
+		return codes.Internal, true
+	case 14:
+		return codes.Unavailable, true
+	case 15:
+		return codes.DataLoss, true
+	case 16:
+		return codes.Unauthenticated, true
+	default:
 		return codes.Internal, false
 	}
-
-	code := codes.Code(value)
-	if strings.HasPrefix(code.String(), "Code(") {
-		return codes.Internal, false
-	}
-
-	return code, true
 }
 
 func readIdempotencyKey(ctx context.Context) (string, error) {
