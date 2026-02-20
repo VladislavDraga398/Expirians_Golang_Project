@@ -483,7 +483,7 @@ func TestRun_UsesDependencies(t *testing.T) {
 	}
 }
 
-func TestMain_SuccessWithStubbedDeps(t *testing.T) {
+func TestMain_SuccessWithStubbedDeps(_ *testing.T) {
 	oldDeps := newReplayDependencies
 	oldArgs := os.Args
 	oldCommandLine := flag.CommandLine
