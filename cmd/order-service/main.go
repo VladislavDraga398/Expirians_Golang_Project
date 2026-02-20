@@ -18,17 +18,18 @@ import (
 )
 
 const (
-	envLogLevel            = "LOG_LEVEL"
-	envGRPCAddr            = "OMS_GRPC_ADDR"
-	envMetricsAddr         = "OMS_METRICS_ADDR"
-	envStorageDriver       = "OMS_STORAGE_DRIVER"
-	envPostgresDSN         = "OMS_POSTGRES_DSN"
-	envPostgresAutoMigrate = "OMS_POSTGRES_AUTO_MIGRATE"
-	envOutboxPollInterval  = "OMS_OUTBOX_POLL_INTERVAL"
-	envOutboxBatchSize     = "OMS_OUTBOX_BATCH_SIZE"
-	envOutboxMaxAttempts   = "OMS_OUTBOX_MAX_ATTEMPTS"
-	envOutboxRetryDelay    = "OMS_OUTBOX_RETRY_DELAY"
-	envOutboxMaxPending    = "OMS_OUTBOX_MAX_PENDING"
+	envLogLevel              = "LOG_LEVEL"
+	envGRPCAddr              = "OMS_GRPC_ADDR"
+	envMetricsAddr           = "OMS_METRICS_ADDR"
+	envStorageDriver         = "OMS_STORAGE_DRIVER"
+	envPostgresDSN           = "OMS_POSTGRES_DSN"
+	envPostgresAutoMigrate   = "OMS_POSTGRES_AUTO_MIGRATE"
+	envAllowMockIntegrations = "OMS_ALLOW_MOCK_INTEGRATIONS"
+	envOutboxPollInterval    = "OMS_OUTBOX_POLL_INTERVAL"
+	envOutboxBatchSize       = "OMS_OUTBOX_BATCH_SIZE"
+	envOutboxMaxAttempts     = "OMS_OUTBOX_MAX_ATTEMPTS"
+	envOutboxRetryDelay      = "OMS_OUTBOX_RETRY_DELAY"
+	envOutboxMaxPending      = "OMS_OUTBOX_MAX_PENDING"
 )
 
 type configWarning struct {
@@ -94,6 +95,15 @@ func readConfigFromEnv(lookup envLookup) (app.Config, []configWarning) {
 			warnings = append(warnings, configWarning{env: envPostgresAutoMigrate, value: raw, err: err})
 		} else {
 			cfg.PostgresAutoMigrate = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envAllowMockIntegrations); ok {
+		value, err := parseBool(raw)
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envAllowMockIntegrations, value: raw, err: err})
+		} else {
+			cfg.AllowMockIntegrations = value
 		}
 	}
 
@@ -200,16 +210,17 @@ func main() {
 	defer stop()
 
 	log.WithFields(log.Fields{
-		"grpc_addr":             cfg.GRPCAddr,
-		"metrics_addr":          cfg.MetricsAddr,
-		"storage_driver":        cfg.StorageDriver,
-		"postgres_auto_migrate": cfg.PostgresAutoMigrate,
-		"outbox_poll_interval":  cfg.OutboxPollInterval.String(),
-		"outbox_batch_size":     cfg.OutboxBatchSize,
-		"outbox_max_attempts":   cfg.OutboxMaxAttempts,
-		"outbox_retry_delay":    cfg.OutboxRetryDelay.String(),
-		"outbox_max_pending":    cfg.OutboxMaxPending,
-		"build":                 version.String(),
+		"grpc_addr":               cfg.GRPCAddr,
+		"metrics_addr":            cfg.MetricsAddr,
+		"storage_driver":          cfg.StorageDriver,
+		"postgres_auto_migrate":   cfg.PostgresAutoMigrate,
+		"allow_mock_integrations": cfg.AllowMockIntegrations,
+		"outbox_poll_interval":    cfg.OutboxPollInterval.String(),
+		"outbox_batch_size":       cfg.OutboxBatchSize,
+		"outbox_max_attempts":     cfg.OutboxMaxAttempts,
+		"outbox_retry_delay":      cfg.OutboxRetryDelay.String(),
+		"outbox_max_pending":      cfg.OutboxMaxPending,
+		"build":                   version.String(),
 	}).Info("запускаем OrderService")
 
 	if err := app.Run(ctx, cfg); err != nil && !errors.Is(err, context.Canceled) {

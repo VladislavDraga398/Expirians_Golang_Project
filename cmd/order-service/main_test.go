@@ -21,16 +21,17 @@ func TestReadConfigFromEnv_Defaults(t *testing.T) {
 
 func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 	cfg, warnings := readConfigFromEnv(mapLookup(map[string]string{
-		envGRPCAddr:            "localhost:50051",
-		envMetricsAddr:         "localhost:9090",
-		envStorageDriver:       " PoStGrEs ",
-		envPostgresDSN:         " postgres://oms:oms@localhost:5432/oms?sslmode=disable ",
-		envPostgresAutoMigrate: "off",
-		envOutboxPollInterval:  "2s",
-		envOutboxBatchSize:     "42",
-		envOutboxMaxAttempts:   "7",
-		envOutboxRetryDelay:    "0s",
-		envOutboxMaxPending:    "0",
+		envGRPCAddr:              "localhost:50051",
+		envMetricsAddr:           "localhost:9090",
+		envStorageDriver:         " PoStGrEs ",
+		envPostgresDSN:           " postgres://oms:oms@localhost:5432/oms?sslmode=disable ",
+		envPostgresAutoMigrate:   "off",
+		envAllowMockIntegrations: "yes",
+		envOutboxPollInterval:    "2s",
+		envOutboxBatchSize:       "42",
+		envOutboxMaxAttempts:     "7",
+		envOutboxRetryDelay:      "0s",
+		envOutboxMaxPending:      "0",
 	}))
 
 	if len(warnings) != 0 {
@@ -51,6 +52,9 @@ func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 	}
 	if cfg.PostgresAutoMigrate {
 		t.Fatal("expected PostgresAutoMigrate=false")
+	}
+	if !cfg.AllowMockIntegrations {
+		t.Fatal("expected AllowMockIntegrations=true")
 	}
 	if cfg.OutboxPollInterval != 2*time.Second {
 		t.Fatalf("unexpected poll interval: %s", cfg.OutboxPollInterval)
@@ -73,20 +77,24 @@ func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
 	defaultCfg := app.DefaultConfig()
 
 	cfg, warnings := readConfigFromEnv(mapLookup(map[string]string{
-		envPostgresAutoMigrate: "not-bool",
-		envOutboxPollInterval:  "-1s",
-		envOutboxBatchSize:     "0",
-		envOutboxMaxAttempts:   "bad",
-		envOutboxRetryDelay:    "invalid",
-		envOutboxMaxPending:    "-2",
+		envPostgresAutoMigrate:   "not-bool",
+		envAllowMockIntegrations: "not-bool",
+		envOutboxPollInterval:    "-1s",
+		envOutboxBatchSize:       "0",
+		envOutboxMaxAttempts:     "bad",
+		envOutboxRetryDelay:      "invalid",
+		envOutboxMaxPending:      "-2",
 	}))
 
-	if len(warnings) != 6 {
-		t.Fatalf("expected 6 warnings, got %d", len(warnings))
+	if len(warnings) != 7 {
+		t.Fatalf("expected 7 warnings, got %d", len(warnings))
 	}
 
 	if cfg.PostgresAutoMigrate != defaultCfg.PostgresAutoMigrate {
 		t.Fatal("expected PostgresAutoMigrate to keep default on invalid value")
+	}
+	if cfg.AllowMockIntegrations != defaultCfg.AllowMockIntegrations {
+		t.Fatal("expected AllowMockIntegrations to keep default on invalid value")
 	}
 	if cfg.OutboxPollInterval != defaultCfg.OutboxPollInterval {
 		t.Fatal("expected OutboxPollInterval to keep default on invalid value")

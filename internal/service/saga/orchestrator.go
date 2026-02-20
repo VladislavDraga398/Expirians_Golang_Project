@@ -262,12 +262,13 @@ func (o *orchestrator) Cancel(orderID, reason string) {
 
 	payload := map[string]interface{}{
 		"reason": reason,
-		"ts":     time.Now().UTC().Format(time.RFC3339Nano),
 	}
+	occurredAt := time.Now().UTC()
+	payload["ts"] = occurredAt.Format(time.RFC3339Nano)
 	if reason == "" {
 		delete(payload, "reason")
 	}
-	o.emitEvent(&order, "OrderCanceled", payload)
+	o.emitEvent(&order, "OrderCanceled", payload, occurredAt)
 
 	// Публикуем событие отмены саги в Kafka
 	o.publishSagaEvent(kafka.EventTypeSagaCanceled, order.ID, map[string]interface{}{
@@ -339,12 +340,13 @@ func (o *orchestrator) Refund(orderID string, amountMinor int64, reason string) 
 	payload := map[string]interface{}{
 		"amount_minor": amountMinor,
 		"reason":       reason,
-		"ts":           time.Now().UTC().Format(time.RFC3339Nano),
 	}
+	occurredAt := time.Now().UTC()
+	payload["ts"] = occurredAt.Format(time.RFC3339Nano)
 	if reason == "" {
 		delete(payload, "reason")
 	}
-	o.emitEvent(&order, "OrderRefunded", payload)
+	o.emitEvent(&order, "OrderRefunded", payload, occurredAt)
 
 	// Публикуем событие возврата в Kafka
 	o.publishSagaEvent(kafka.EventTypeSagaRefunded, order.ID, map[string]interface{}{
@@ -367,9 +369,10 @@ func (o *orchestrator) failOrder(order *domain.Order, status domain.OrderStatus,
 
 	payload := map[string]interface{}{
 		"reason": rootErr.Error(),
-		"ts":     time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	o.emitEvent(order, "OrderSagaFailed", payload)
+	occurredAt := time.Now().UTC()
+	payload["ts"] = occurredAt.Format(time.RFC3339Nano)
+	o.emitEvent(order, "OrderSagaFailed", payload, occurredAt)
 
 	// Публикуем событие провала саги в Kafka
 	o.publishSagaEvent(kafka.EventTypeSagaFailed, order.ID, map[string]interface{}{
@@ -461,13 +464,17 @@ func (o *orchestrator) emitStatusEvent(order *domain.Order) {
 		"updated_at": order.UpdatedAt.Format(time.RFC3339Nano),
 		"ts":         order.UpdatedAt.Format(time.RFC3339Nano),
 	}
-	o.emitEvent(order, "OrderStatusChanged", payload)
+	o.emitEvent(order, "OrderStatusChanged", payload, order.UpdatedAt)
 }
 
-func (o *orchestrator) emitEvent(order *domain.Order, eventType string, payload map[string]interface{}) {
+func (o *orchestrator) emitEvent(order *domain.Order, eventType string, payload map[string]interface{}, occurredAt time.Time) {
 	if payload == nil {
 		payload = make(map[string]interface{})
 	}
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+
 	payload["order_id"] = order.ID
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -498,27 +505,11 @@ func (o *orchestrator) emitEvent(order *domain.Order, eventType string, payload 
 		if r, ok := payload["reason"].(string); ok {
 			reason = r
 		}
-		var occurred time.Time
-		if ts, ok := payload["ts"].(string); ok {
-			if parsed, parseErr := time.Parse(time.RFC3339Nano, ts); parseErr == nil {
-				occurred = parsed
-			}
-		}
-		if occurred.IsZero() {
-			if upd, ok := payload["updated_at"].(string); ok {
-				if parsed, parseErr := time.Parse(time.RFC3339Nano, upd); parseErr == nil {
-					occurred = parsed
-				}
-			}
-		}
-		if occurred.IsZero() {
-			occurred = time.Now().UTC()
-		}
 		event := domain.TimelineEvent{
 			OrderID:  order.ID,
 			Type:     eventType,
 			Reason:   reason,
-			Occurred: occurred,
+			Occurred: occurredAt,
 		}
 		if err := o.timeline.Append(event); err != nil {
 			o.logger.WithError(err).WithFields(log.Fields{

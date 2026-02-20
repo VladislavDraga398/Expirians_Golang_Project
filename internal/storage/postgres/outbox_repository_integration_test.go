@@ -136,3 +136,88 @@ func TestOutboxRepository_PostgresStatsOldestPendingOrder(t *testing.T) {
 		t.Fatalf("mark sent first: %v", err)
 	}
 }
+
+func TestOutboxRepository_PostgresPullPendingClaimsAndLocks(t *testing.T) {
+	store := openPostgresStoreForIntegrationTest(t)
+	repo := NewOutboxRepository(store)
+
+	saved, err := repo.Enqueue(domain.OutboxMessage{
+		AggregateType: "order",
+		AggregateID:   "order-claim",
+		EventType:     "OrderCreated",
+		Payload:       []byte(`{"id":"order-claim"}`),
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	first, err := repo.PullPending(1)
+	if err != nil {
+		t.Fatalf("first pull: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("expected 1 claimed message, got %d", len(first))
+	}
+	if first[0].ID != saved.ID {
+		t.Fatalf("expected id %s, got %s", saved.ID, first[0].ID)
+	}
+
+	second, err := repo.PullPending(1)
+	if err != nil {
+		t.Fatalf("second pull: %v", err)
+	}
+	if len(second) != 0 {
+		t.Fatalf("expected claimed message to be locked, got %d messages", len(second))
+	}
+
+	stats, err := repo.Stats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats.PendingCount != 1 {
+		t.Fatalf("expected backlog count=1 for processing record, got %d", stats.PendingCount)
+	}
+}
+
+func TestOutboxRepository_PostgresPullPendingReclaimsStaleProcessing(t *testing.T) {
+	store := openPostgresStoreForIntegrationTest(t)
+	repo := NewOutboxRepository(store)
+
+	saved, err := repo.Enqueue(domain.OutboxMessage{
+		AggregateType: "order",
+		AggregateID:   "order-reclaim",
+		EventType:     "OrderCreated",
+		Payload:       []byte(`{"id":"order-reclaim"}`),
+	})
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	first, err := repo.PullPending(1)
+	if err != nil {
+		t.Fatalf("first pull: %v", err)
+	}
+	if len(first) != 1 {
+		t.Fatalf("expected first pull to claim message, got %d", len(first))
+	}
+
+	_, err = store.DB().Exec(`
+		UPDATE outbox_messages
+		SET status = 'processing', updated_at = $2
+		WHERE id = $1
+	`, saved.ID, time.Now().UTC().Add(-outboxProcessingLease-time.Second))
+	if err != nil {
+		t.Fatalf("force stale processing: %v", err)
+	}
+
+	reclaimed, err := repo.PullPending(1)
+	if err != nil {
+		t.Fatalf("reclaim pull: %v", err)
+	}
+	if len(reclaimed) != 1 {
+		t.Fatalf("expected stale processing record to be reclaimed, got %d", len(reclaimed))
+	}
+	if reclaimed[0].ID != saved.ID {
+		t.Fatalf("expected reclaimed id %s, got %s", saved.ID, reclaimed[0].ID)
+	}
+}

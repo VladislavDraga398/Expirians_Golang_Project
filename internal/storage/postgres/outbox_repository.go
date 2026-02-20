@@ -15,6 +15,8 @@ type outboxRepository struct {
 	db *sql.DB
 }
 
+const outboxProcessingLease = 2 * time.Minute
+
 // NewOutboxRepository создаёт PostgreSQL-реализацию OutboxRepository.
 func NewOutboxRepository(store *Store) domain.OutboxRepository {
 	return &outboxRepository{db: store.DB()}
@@ -52,13 +54,31 @@ func (r *outboxRepository) PullPending(limit int) ([]domain.OutboxMessage, error
 		limit = 100
 	}
 
+	now := time.Now().UTC()
+	staleBefore := now.Add(-outboxProcessingLease)
+
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, aggregate_type, aggregate_id, event_type, payload
-		FROM outbox_messages
-		WHERE status = 'pending'
+		WITH candidates AS (
+			SELECT id
+			FROM outbox_messages
+			WHERE status = 'pending'
+			   OR (status = 'processing' AND updated_at <= $2)
+			ORDER BY created_at, id
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		),
+		claimed AS (
+			UPDATE outbox_messages AS outbox
+			SET status = 'processing',
+			    updated_at = $3
+			FROM candidates
+			WHERE outbox.id = candidates.id
+			RETURNING outbox.id, outbox.aggregate_type, outbox.aggregate_id, outbox.event_type, outbox.payload, outbox.created_at
+		)
+		SELECT id, aggregate_type, aggregate_id, event_type, payload, created_at
+		FROM claimed
 		ORDER BY created_at, id
-		LIMIT $1
-	`, limit)
+	`, limit, staleBefore, now)
 	if err != nil {
 		return nil, fmt.Errorf("pull pending outbox messages: %w", err)
 	}
@@ -67,12 +87,14 @@ func (r *outboxRepository) PullPending(limit int) ([]domain.OutboxMessage, error
 	result := make([]domain.OutboxMessage, 0, limit)
 	for rows.Next() {
 		var msg domain.OutboxMessage
+		var createdAt time.Time
 		if err := rows.Scan(
 			&msg.ID,
 			&msg.AggregateType,
 			&msg.AggregateID,
 			&msg.EventType,
 			&msg.Payload,
+			&createdAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan outbox message: %w", err)
 		}
@@ -97,7 +119,7 @@ func (r *outboxRepository) Stats() (domain.OutboxStats, error) {
 	if err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*), MIN(created_at)
 		FROM outbox_messages
-		WHERE status = 'pending'
+		WHERE status IN ('pending', 'processing')
 	`).Scan(&stats.PendingCount, &oldest); err != nil {
 		return domain.OutboxStats{}, fmt.Errorf("outbox stats query failed: %w", err)
 	}

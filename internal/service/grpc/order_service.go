@@ -37,6 +37,8 @@ type OrderService struct {
 	sagaMu     sync.Mutex
 	sagaClosed bool
 	sagaWG     sync.WaitGroup
+
+	idempotencyWarnOnce sync.Once
 }
 
 const (
@@ -192,6 +194,9 @@ func (s *OrderService) payOrderInternal(_ context.Context, req *omsv1.PayOrderRe
 	order, err := s.loadOrder(req.OrderId, "PayOrder")
 	if err != nil {
 		return nil, err
+	}
+	if order.Status != domain.OrderStatusPending {
+		return nil, status.Errorf(codes.FailedPrecondition, "order %s status=%s, expected=%s", order.ID, order.Status, domain.OrderStatusPending)
 	}
 
 	if s.saga != nil {
@@ -421,6 +426,7 @@ func withIdempotency[T proto.Message](
 	var zero T
 
 	if s.idemRepo == nil {
+		s.warnIdempotencyDisabled(method)
 		return handler(ctx)
 	}
 
@@ -451,6 +457,12 @@ func withIdempotency[T proto.Message](
 	}
 
 	return resp, nil
+}
+
+func (s *OrderService) warnIdempotencyDisabled(method string) {
+	s.idempotencyWarnOnce.Do(func() {
+		s.logger.WithField("method", method).Warn("idempotency repository is not configured; processing request without idempotency guarantees")
+	})
 }
 
 func replayIdempotency[T proto.Message](
@@ -548,17 +560,20 @@ func decodeIdempotencyFailure(record domain.IdempotencyRecord) error {
 }
 
 func grpcCodeFromInt32(value int32) (codes.Code, bool) {
-	if value < int32(codes.OK) || value > int32(codes.Unauthenticated) {
-		return codes.Internal, false
-	}
-	return codes.Code(uint32(value)), true
+	return grpcCodeFromInt(int(value))
 }
 
 func grpcCodeFromInt(value int) (codes.Code, bool) {
-	if value < int(codes.OK) || value > int(codes.Unauthenticated) {
+	if value < 0 {
 		return codes.Internal, false
 	}
-	return codes.Code(uint32(value)), true
+
+	code := codes.Code(value)
+	if strings.HasPrefix(code.String(), "Code(") {
+		return codes.Internal, false
+	}
+
+	return code, true
 }
 
 func readIdempotencyKey(ctx context.Context) (string, error) {

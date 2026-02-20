@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -81,5 +82,23 @@ func TestParseKafkaBrokers_Empty(t *testing.T) {
 	brokers := parseKafkaBrokers(" , , ")
 	if len(brokers) != 0 {
 		t.Fatalf("expected no brokers, got %d", len(brokers))
+	}
+}
+
+func TestValidateMockIntegrationsPolicy(t *testing.T) {
+	if err := validateMockIntegrationsPolicy(Config{StorageDriver: StorageDriverMemory}); err != nil {
+		t.Fatalf("memory storage should allow mocks by default, got %v", err)
+	}
+
+	if err := validateMockIntegrationsPolicy(Config{StorageDriver: StorageDriverPostgres, AllowMockIntegrations: true}); err != nil {
+		t.Fatalf("postgres with explicit mock allowance should pass, got %v", err)
+	}
+
+	err := validateMockIntegrationsPolicy(Config{StorageDriver: StorageDriverPostgres, AllowMockIntegrations: false})
+	if err == nil {
+		t.Fatal("expected error when postgres runs with implicit mock integrations")
+	}
+	if !strings.Contains(err.Error(), "OMS_ALLOW_MOCK_INTEGRATIONS=true") {
+		t.Fatalf("unexpected error text: %v", err)
 	}
 }

@@ -329,6 +329,20 @@ func TestOrderService_PayOrder(t *testing.T) {
 	require.Equal(t, []string{"order-1"}, stub.getStarted())
 }
 
+func TestOrderService_PayOrder_RejectsNonPendingStatus(t *testing.T) {
+	repo := memory.NewOrderRepository()
+	seedOrder(t, repo, domain.OrderStatusConfirmed)
+	stub := &stubOrchestrator{}
+	service := grpcsvc.NewOrderService(repo, memory.NewTimelineRepository(), memory.NewIdempotencyRepository(), stub, loggerForTests())
+
+	_, err := service.PayOrder(idemCtx("pay-order-non-pending"), &omsv1.PayOrderRequest{OrderId: "order-1"})
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+	time.Sleep(10 * time.Millisecond)
+	require.Empty(t, stub.getStarted())
+}
+
 func TestOrderService_CancelOrder(t *testing.T) {
 	repo := memory.NewOrderRepository()
 	seedOrder(t, repo, domain.OrderStatusReserved)

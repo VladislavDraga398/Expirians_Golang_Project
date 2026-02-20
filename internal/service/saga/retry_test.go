@@ -66,7 +66,7 @@ func TestRetryableOrchestratorExecuteWithRetry(t *testing.T) {
 		ro.executeWithRetry("op", "order-1", func() error {
 			attempts++
 			if attempts < 3 {
-				return domain.ErrInventoryUnavailable
+				return domain.ErrInventoryTemporary
 			}
 			return nil
 		})
@@ -107,11 +107,20 @@ func TestRetryableOrchestratorShouldRetry(t *testing.T) {
 	if ro.shouldRetry(domain.ErrOrderVersionConflict) {
 		t.Fatal("ErrOrderVersionConflict should not be retried")
 	}
-	if !ro.shouldRetry(domain.ErrInventoryUnavailable) {
-		t.Fatal("ErrInventoryUnavailable should be retried")
+	if ro.shouldRetry(domain.ErrInventoryUnavailable) {
+		t.Fatal("ErrInventoryUnavailable should not be retried")
 	}
-	if !ro.shouldRetry(domain.ErrPaymentDeclined) {
-		t.Fatal("ErrPaymentDeclined should be retried")
+	if ro.shouldRetry(domain.ErrPaymentDeclined) {
+		t.Fatal("ErrPaymentDeclined should not be retried")
+	}
+	if !ro.shouldRetry(domain.ErrInventoryTemporary) {
+		t.Fatal("ErrInventoryTemporary should be retried")
+	}
+	if !ro.shouldRetry(domain.ErrPaymentTemporary) {
+		t.Fatal("ErrPaymentTemporary should be retried")
+	}
+	if !ro.shouldRetry(domain.ErrPaymentIndeterminate) {
+		t.Fatal("ErrPaymentIndeterminate should be retried")
 	}
 	if !ro.shouldRetry(errors.New("unknown")) {
 		t.Fatal("unknown errors should be retried by default")

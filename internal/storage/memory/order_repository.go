@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sort"
 	"sync"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
@@ -49,16 +50,25 @@ func (r *orderRepositoryInMemory) ListByCustomer(customerID string, limit int) (
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	var result []domain.Order
+	result := make([]domain.Order, 0, len(r.items))
 	for _, order := range r.items {
 		if order.CustomerID != customerID {
 			continue
 		}
 		result = append(result, order)
-		if limit > 0 && len(result) >= limit {
-			break
-		}
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if !result[i].CreatedAt.Equal(result[j].CreatedAt) {
+			return result[i].CreatedAt.After(result[j].CreatedAt)
+		}
+		return result[i].ID > result[j].ID
+	})
+
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+
 	return result, nil
 }
 

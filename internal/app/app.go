@@ -43,35 +43,41 @@ const (
 
 // Config описывает минимальные настройки запуска приложения.
 type Config struct {
-	GRPCAddr            string
-	MetricsAddr         string
-	StorageDriver       string
-	PostgresDSN         string
-	PostgresAutoMigrate bool
-	OutboxPollInterval  time.Duration
-	OutboxBatchSize     int
-	OutboxMaxAttempts   int
-	OutboxRetryDelay    time.Duration
-	OutboxMaxPending    int
+	GRPCAddr              string
+	MetricsAddr           string
+	StorageDriver         string
+	PostgresDSN           string
+	PostgresAutoMigrate   bool
+	AllowMockIntegrations bool
+	OutboxPollInterval    time.Duration
+	OutboxBatchSize       int
+	OutboxMaxAttempts     int
+	OutboxRetryDelay      time.Duration
+	OutboxMaxPending      int
 }
 
 // DefaultConfig возвращает базовые адреса для gRPC и HTTP-метрик.
 func DefaultConfig() Config {
 	return Config{
-		GRPCAddr:            ":50051",
-		MetricsAddr:         ":9090",
-		StorageDriver:       StorageDriverMemory,
-		PostgresAutoMigrate: true,
-		OutboxPollInterval:  time.Second,
-		OutboxBatchSize:     100,
-		OutboxMaxAttempts:   3,
-		OutboxRetryDelay:    50 * time.Millisecond,
-		OutboxMaxPending:    10000,
+		GRPCAddr:              ":50051",
+		MetricsAddr:           ":9090",
+		StorageDriver:         StorageDriverMemory,
+		PostgresAutoMigrate:   true,
+		AllowMockIntegrations: false,
+		OutboxPollInterval:    time.Second,
+		OutboxBatchSize:       100,
+		OutboxMaxAttempts:     3,
+		OutboxRetryDelay:      50 * time.Millisecond,
+		OutboxMaxPending:      10000,
 	}
 }
 
 func Run(ctx context.Context, cfg Config) error {
 	logger := log.WithField("component", "app")
+
+	if err := validateMockIntegrationsPolicy(cfg); err != nil {
+		return err
+	}
 
 	runtimeDeps, err := initRuntimeDependencies(ctx, cfg, logger)
 	if err != nil {
@@ -86,13 +92,7 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 	}()
 
-	repo := runtimeDeps.repo
-	outboxRepo := runtimeDeps.outboxRepo
-	timelineRepo := runtimeDeps.timelineRepo
-
-	// Для локальной разработки используются mock-сервисы.
-	inventorySvc := inventory.NewMockService()
-	paymentSvc := payment.NewMockService()
+	deps := newAppDependencies(runtimeDeps, logger)
 
 	// Kafka producer опционален: если брокер недоступен, сервис продолжает работу.
 	var kafkaProducer *kafka.Producer
@@ -115,7 +115,7 @@ func Run(ctx context.Context, cfg Config) error {
 			logger.WithField("brokers", brokers).Info("kafka producer initialized")
 
 			outboxWorker := outboxsvc.NewWorker(
-				outboxRepo,
+				deps.OutboxRepo,
 				kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicOrderEvents),
 				outboxsvc.WithDLQPublisher(kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicDeadLetterQueue)),
 				outboxsvc.WithLogger(logger.WithField("component", "outbox-worker")),
@@ -133,7 +133,7 @@ func Run(ctx context.Context, cfg Config) error {
 			}()
 
 			outboxChecker = healthcheck.NewSimpleChecker("outbox", func() error {
-				stats, err := outboxRepo.Stats()
+				stats, err := deps.OutboxRepo.Stats()
 				if err != nil {
 					return err
 				}
@@ -143,33 +143,17 @@ func Run(ctx context.Context, cfg Config) error {
 				return nil
 			})
 
-			// Создаём orchestrator с Kafka
-			sagaOrchestrator = saga.NewOrchestratorWithKafka(
-				repo,
-				outboxRepo,
-				timelineRepo,
-				inventorySvc,
-				paymentSvc,
-				kafkaProducer,
-				logger,
-			)
+			sagaOrchestrator = createOrchestrator(deps, kafkaProducer)
 		}
 	}
 
 	// Если Kafka не настроен, используем обычный orchestrator
 	if sagaOrchestrator == nil {
-		sagaOrchestrator = saga.NewOrchestrator(
-			repo,
-			outboxRepo,
-			timelineRepo,
-			inventorySvc,
-			paymentSvc,
-			logger,
-		)
+		sagaOrchestrator = createOrchestrator(deps, nil)
 	}
 
 	serviceLogger := logger.WithField("layer", "grpc")
-	orderService := grpcsvc.NewOrderService(repo, timelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
+	orderService := grpcsvc.NewOrderService(deps.Repo, deps.TimelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
 	grpcMetrics := promgrpc.NewServerMetrics()
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))
 	if err := prometheus.Register(grpcMetrics); err != nil {
@@ -230,7 +214,6 @@ func Run(ctx context.Context, cfg Config) error {
 			grpcServer.Stop()
 		}
 		shutdownOrderService(orderService, logger)
-		shutdownHTTP(metricsSrv, logger)
 		shutdownOutboxWorker(outboxWorkerCancel, outboxWorkerDone, logger)
 
 		closeKafkaProducer(kafkaProducer, logger)
@@ -249,6 +232,30 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
+func validateMockIntegrationsPolicy(cfg Config) error {
+	driver := normalizedStorageDriver(cfg.StorageDriver)
+	if driver == StorageDriverPostgres && !cfg.AllowMockIntegrations {
+		return fmt.Errorf(
+			"OMS_ALLOW_MOCK_INTEGRATIONS=true is required for %s storage driver: real inventory/payment integrations are not configured",
+			StorageDriverPostgres,
+		)
+	}
+	return nil
+}
+
+func newAppDependencies(runtime runtimeDependencies, logger *log.Entry) *Dependencies {
+	logger.Warn("using mock inventory/payment integrations")
+
+	return &Dependencies{
+		Repo:         runtime.repo,
+		OutboxRepo:   runtime.outboxRepo,
+		TimelineRepo: runtime.timelineRepo,
+		InventorySvc: inventory.NewMockService(),
+		PaymentSvc:   payment.NewMockService(),
+		Logger:       logger,
+	}
+}
+
 type runtimeDependencies struct {
 	repo            domain.OrderRepository
 	outboxRepo      domain.OutboxRepository
@@ -259,10 +266,7 @@ type runtimeDependencies struct {
 }
 
 func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry) (runtimeDependencies, error) {
-	driver := strings.ToLower(strings.TrimSpace(cfg.StorageDriver))
-	if driver == "" {
-		driver = StorageDriverMemory
-	}
+	driver := normalizedStorageDriver(cfg.StorageDriver)
 
 	switch driver {
 	case StorageDriverMemory:
@@ -308,6 +312,14 @@ func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry)
 	default:
 		return runtimeDependencies{}, fmt.Errorf("unsupported storage driver: %s", driver)
 	}
+}
+
+func normalizedStorageDriver(value string) string {
+	driver := strings.ToLower(strings.TrimSpace(value))
+	if driver == "" {
+		return StorageDriverMemory
+	}
+	return driver
 }
 
 // startMetricsServer запускает HTTP-обработчик /metrics для Prometheus.
