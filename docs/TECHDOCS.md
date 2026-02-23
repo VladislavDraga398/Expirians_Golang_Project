@@ -2,15 +2,22 @@
 
 Единая точка входа во всю техническую документацию проекта.
 
-**Версия:** v2.2  
-**Обновлено:** 2026-02-14  
-**Статус:** актуально
+**Версия:** v3.0  
+**Обновлено:** 2026-02-23  
+**Статус:** Sprint 2 Active
 
 ## Start Here
 
 1. [Quick Start](quick-start.md)  
 2. [Project README](../README.md)  
 3. [Roadmap](roadmap.md)
+
+## Program Status
+
+- Текущая программа: переход OMS в delivery-продукт **BoostMarket**.
+- Sprint 1 (`Core Hardening`) завершён.
+- Активный этап: Sprint 2 (`Delivery Domain Foundation`).
+- Ключевой источник истины по плану: [Roadmap](roadmap.md).
 
 ## Architecture
 
@@ -40,6 +47,7 @@
 
 - [CI/CD](guides/ci-cd.md)
 - [Makefile Commands](guides/makefile.md)
+- [Tech Debt Register](decisions/tech-debt.md)
 - [Open Questions](decisions/open-questions.md)
 
 ## Architecture Decisions

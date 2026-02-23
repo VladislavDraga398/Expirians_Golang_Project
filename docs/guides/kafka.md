@@ -1,191 +1,86 @@
 # Kafka Integration Guide
 
-## Обзор
+Интеграция Kafka в текущем OMS runtime.
 
-В Phase 4 мы добавили **Apache Kafka** для реализации event-driven архитектуры. Это позволяет:
-- Асинхронную обработку saga событий
-- Масштабируемость через consumer groups
-- Гарантии доставки (at-least-once)
-- Retry механизмы и error handling
-- Audit trail всех событий
+**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
-## Архитектура
+---
 
-```
-┌─────────────┐      ┌──────────┐      ┌─────────────┐
-│ OMS Service │─────>│  Kafka   │─────>│  Consumers  │
-│  (Producer) │      │  Broker  │      │   (Groups)  │
-└─────────────┘      └──────────┘      └─────────────┘
-                           │
-                           ├─ Topic: oms.saga.events
-                           └─ Topic: oms.order.events
-```
+## TL;DR
+- Kafka используется для публикации outbox-событий и DLQ.
+- Основные топики: `oms.order.events`, `oms.saga.events`, `oms.dlq`.
+- Producer настроен с `acks=all`, `idempotent=true`, `snappy`.
+- Consumer поддерживает локальные retry-попытки и отправку в DLQ при исчерпании попыток.
 
-## Компоненты
+## Компоненты (docker-compose)
 
-### 1. Kafka Broker
-- **Image**: `confluentinc/cp-kafka:7.5.0`
-- **Ports**: 
-  - `9092` - внутренний (для контейнеров)
-  - `9093` - внешний (для localhost)
+### Kafka
+- Image: `confluentinc/cp-kafka:7.5.0`
+- Порты:
+  - `9092` (внутри docker-сети)
+  - `9093` (localhost)
 
-### 2. Zookeeper
-- **Image**: `confluentinc/cp-zookeeper:7.5.0`
-- **Port**: `2181`
+### Zookeeper
+- Image: `confluentinc/cp-zookeeper:7.5.0`
+- Порт: `2181`
 
-### 3. Kafka UI
-- **Image**: `provectuslabs/kafka-ui:latest`
-- **Port**: `8080`
-- **URL**: http://localhost:8080
+### Kafka UI
+- Image: `provectuslabs/kafka-ui@sha256:8f2ff02d64b0a7a2b71b6b3b3148b85f66d00ec20ad40c30bdcd415d46d31818`
+- URL: http://localhost:8080
 
-## Topics
+## Топики
+- `oms.order.events` — события заказа из outbox publisher.
+- `oms.saga.events` — saga lifecycle events.
+- `oms.dlq` — сообщения, не прошедшие обработку после retry.
 
-### `oms.saga.events`
-События жизненного цикла саги:
-- `saga.started` - сага запущена
-- `saga.completed` - сага успешно завершена
-- `saga.failed` - сага провалилась
-- `saga.canceled` - сага отменена
-- `saga.refunded` - выполнен возврат
+## Runtime поток публикации
+1. В транзакции записывается бизнес-изменение + запись в `outbox_messages`.
+2. Outbox worker забирает batch через claim (`FOR UPDATE SKIP LOCKED`).
+3. Публикует событие в Kafka.
+4. Помечает запись как `sent` или `failed`; при исчерпании попыток отправляет в DLQ.
 
-### `oms.order.events`
-События заказа:
-- `order.created` - заказ создан
-- `order.confirmed` - заказ подтвержден
-- `order.canceled` - заказ отменен
-- `order.refunded` - возврат выполнен
+## Конфигурация
+- `KAFKA_BROKERS` — список брокеров через запятую.
+- При пустом `KAFKA_BROKERS` сервис работает без Kafka producer.
+- При невалидном значении `KAFKA_BROKERS` runtime завершается с ошибкой конфигурации.
 
-## Запуск
+## Проверка локально
 
-### 1. Запуск всего стека
 ```bash
-docker compose up -d
-```
+# Поднять стек
+make compose-up
 
-### 2. Проверка здоровья Kafka
-```bash
-docker compose logs kafka | grep "started (kafka.server.KafkaServer)"
-```
+# Проверить broker логи
+docker compose logs kafka | rg "started \(kafka.server.KafkaServer\)"
 
-### 3. Открыть Kafka UI
-```bash
+# Открыть UI
 open http://localhost:8080
 ```
-
-## Использование
-
-### Producer (публикация событий)
-
-```go
-import "github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
-
-// Создание producer
-producer, err := kafka.NewProducer([]string{"localhost:9093"})
-if err != nil {
-    log.Fatal(err)
-}
-defer producer.Close()
-
-// Публикация события
-event := kafka.NewSagaEvent(
-    kafka.EventTypeSagaStarted,
-    orderID,
-    map[string]interface{}{
-        "customer_id": customerID,
-    },
-)
-
-err = producer.PublishEvent(kafka.TopicSagaEvents, orderID, event)
-```
-
-### Consumer (обработка событий)
-
-```go
-// Обработчик сообщений
-handler := func(ctx context.Context, msg *sarama.ConsumerMessage) error {
-    event, err := kafka.ParseSagaEvent(msg)
-    if err != nil {
-        return err
-    }
-    
-    log.Printf("Received event: %s for order %s", event.EventType, event.OrderID)
-    return nil
-}
-
-// Создание consumer
-consumer, err := kafka.NewConsumer(
-    []string{"localhost:9093"},
-    "oms-saga-consumer",
-    []string{kafka.TopicSagaEvents},
-    handler,
-)
-
-// Запуск
-ctx := context.Background()
-consumer.Start(ctx)
-```
-
-## Мониторинг
-
-### Метрики Kafka
-- **Producer throughput**: сообщений/сек
-- **Consumer lag**: отставание consumer от producer
-- **Error rate**: процент ошибок
-
-### Grafana Dashboard
-Добавлены панели для мониторинга Kafka:
-- Message rate
-- Consumer lag
-- Error rate
-- Topic size
 
 ## Troubleshooting
 
 ### Kafka не стартует
 ```bash
-# Проверить логи
-docker compose logs kafka
-
-# Проверить Zookeeper
 docker compose logs zookeeper
-
-# Перезапустить
-docker compose restart kafka
+docker compose logs kafka
+docker compose restart zookeeper kafka
 ```
 
-### Consumer не получает сообщения
+### Нет событий в `oms.order.events`
 ```bash
-# Проверить consumer group
-docker compose exec kafka kafka-consumer-groups \
-  --bootstrap-server localhost:9092 \
-  --group oms-saga-consumer \
-  --describe
+# Проверить OMS env
+printenv KAFKA_BROKERS
+
+# Проверить outbox backlog в метриках/логах
+# и наличие записей pending/processing в outbox_messages
 ```
 
-### Очистить все данные
-```bash
-docker compose down -v
-docker compose up -d
-```
+### Рост `oms.dlq`
+- Проверить причину в payload DLQ-сообщений.
+- Сделать controlled replay через `make dlq-reprocess`.
+- См. runbook: `docs/operations/runbooks.md`.
 
-## Best Practices
-
-### 1. Идемпотентность
-Producer настроен с `Idempotent=true` для предотвращения дубликатов.
-
-### 2. Retry Policy
-- Producer: 5 попыток с exponential backoff
-- Consumer: обработка ошибок с логированием
-
-### 3. Compression
-Используется Snappy compression для уменьшения размера сообщений.
-
-### 4. Partitioning
-Ключ партиционирования = `order_id` для гарантии порядка событий одного заказа.
-
-## Следующие шаги
-
-- [ ] Добавить Dead Letter Queue (DLQ) для failed messages
-- [ ] Реализовать Schema Registry для версионирования событий
-- [ ] Добавить distributed tracing (trace context в headers)
-- [ ] Настроить alerting на consumer lag
+## Что в roadmap дальше
+- Добавить alerting по consumer lag и DLQ burst.
+- Добавить trace-context propagation в headers Kafka сообщений.
+- Добавить policy для replay/retention per-topic.

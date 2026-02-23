@@ -1,89 +1,95 @@
 # Roadmap
 
-> Актуальный план развития OMS
+> Программа развития OMS в продукт BoostMarket (доставка спортпита/БАДов по Москве)
 
-**Версия:** v2.4 | **Обновлено:** 2026-02-14 | **Статус:** Актуально
-
----
-
-## Текущий статус
-
-Проект находится в стадии **stabilization + Phase 6 execution**:
-- базовый функционал заказа, Saga и observability работает;
-- инфраструктурные заготовки (K8s/Helm/Kafka/CI) есть;
-- следующий фокус: production-hardening runtime-части.
+**Версия:** v4.1 | **Обновлено:** 2026-02-23 | **Статус:** Sprint 2 Active
 
 ---
 
-## 6 приоритетов (текущий фокус)
+## TL;DR
+- Базовое ядро OMS стабилизировано в рамках Sprint 1.
+- Текущий фокус: Sprint 2 — фундамент delivery-домена (курьеры, зоны, транспорт, слоты).
+- Архитектурный режим: модульный монолит, без преждевременного перехода в микросервисы.
 
-### 1. Stabilize baseline (DONE)
-- Зафиксировать стабильность тестов и убрать флаки.
-- Добиться устойчивого `go test -race ./...`.
-- Результат: тесты проходят в race-режиме, включая `integration -count=10`.
+## Контекст программы
+- Продукт: **BoostMarket**.
+- Рынок: Москва.
+- Модель: дарксторы + быстрая доставка по зонам.
+- Приоритеты: безопасность, предсказуемость, операционная устойчивость, затем рост бизнес-фич.
 
-### 2. Graceful shutdown end-to-end (DONE)
-- Корректно завершать gRPC/HTTP серверы.
-- Дождаться завершения фоновых saga-задач перед остановкой процесса.
-- Не принимать новые асинхронные saga-dispatch во время shutdown.
+## Статус спринтов
 
-### 3. Documentation consolidation (IN PROGRESS)
-- Убрать расхождения между docs и runtime.
-- Убрать битые ссылки и дубли.
-- Держать единый индекс документации как входную точку.
+### Sprint 1 - Core Hardening (Completed)
+**Цель:** вывести ядро OMS в стабильное эксплуатационное состояние.
 
-### 4. PostgreSQL migration (DONE)
-- Вынести runtime-хранилище из in-memory в PostgreSQL.
-- Реализовать `OrderRepository`, `OutboxRepository`, `TimelineRepository`, `IdempotencyRepository`.
-- Подключить миграции к процессу запуска/CI.
+**Фактически закрыто:**
+- Hardened outbox flow: корректное claim-поведение в PostgreSQL (`FOR UPDATE SKIP LOCKED`) и обработка `pending/processing`.
+- DLQ controlled replay: CLI и безопасный режим dry-run/execute.
+- Idempotency cleanup: фоновая очистка ключей с конфигурируемыми interval/batch.
+- Reliability-фиксы saga/grpc/runtime: устранение гонок, явные precondition-проверки, более предсказуемый shutdown.
+- CI baseline: `lint/tests/migration/build/docker/pre-merge stand` проходят в актуальном пайплайне.
 
-Текущий прогресс:
-- добавлен storage-switch `OMS_STORAGE_DRIVER=memory|postgres`;
-- добавлены PostgreSQL-репозитории для `OrderRepository`, `OutboxRepository`, `TimelineRepository`;
-- добавлен PostgreSQL-репозиторий `IdempotencyRepository`;
-- добавлены versioned SQL миграции `up/down` + CLI `cmd/migrate`;
-- добавлена миграция `0002_idempotency_keys` (`up/down`);
-- в CI добавлен обязательный `migration_check` gate (`up -> down -> up`) + PostgreSQL integration tests для idempotency-репозитория;
-- добавлена auto-migration при старте (`OMS_POSTGRES_AUTO_MIGRATE=true`);
-- health-check теперь умеет проверять доступность PostgreSQL.
+**Остаточный техдолг Sprint 1 (carry-over):**
+- Упростить контур инициализации зависимостей (`runtimeDependencies` vs `Dependencies`).
+- Довести security-аннотации в CI до чистого noiseless статуса (без деградации проверок).
+- Полный актуальный реестр техдолга: `docs/decisions/tech-debt.md`.
 
-### 5. Outbox publisher worker (IN PROGRESS)
-- Реализовать публикацию из outbox как отдельный воркер:
-  - `pending -> sent/failed`
-  - retry policy
-  - интеграция с DLQ
-- Убрать разрыв между `enqueue` и реальной доставкой событий.
+### Sprint 2 - Delivery Domain Foundation (Active)
+**Цель:** заложить доменную основу курьерской доставки.
 
-Текущий прогресс:
-- расширен контракт `OutboxRepository` для `pull pending` + `mark sent/failed`;
-- реализован runtime worker публикации outbox-сообщений;
-- добавлен Kafka outbox publisher + fallback публикация в DLQ;
-- worker подключён к lifecycle приложения (start/stop вместе с сервисом).
+**In scope:**
+- Модели и миграции:
+  - `couriers`
+  - `courier_zones`
+  - `courier_slots`
+  - `courier_vehicle_capabilities`
+- Регистрация курьера по телефону (телефон = уникальный бизнес-идентификатор).
+- Профиль курьера: ФИО, транспорт (`scooter|bike|car`), рабочие районы.
+- Зоны Москвы:
+  - Базовое правило: 1 курьер = 1 район.
+  - Исключение: курьеры на авто могут работать в нескольких районах.
+- Тестируемые ограничения:
+  - лимит активных курьеров на район (базовый старт: 100),
+  - валидность назначения по зоне,
+  - согласованность слотов и занятости.
 
-### 6. Idempotency enforcement (IN PROGRESS)
-- Включить обязательный `idempotency-key` для мутаций.
-- Хранить request hash + response cache + статус обработки.
-- Гарантировать безопасный replay без двойного эффекта.
+**Definition of Done Sprint 2:**
+- Таблицы и репозитории готовы и покрыты интеграционными тестами.
+- gRPC-контракты для базового управления курьерами и зонами зафиксированы.
+- Нет регрессий в текущем OMS lifecycle.
 
-Текущий прогресс:
-- обязательный `idempotency-key` включён для mutating gRPC RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`);
-- включено кэширование успешного ответа и replay для повторов с тем же `request_hash`;
-- конфликт `idempotency-key` с другим `request_hash` возвращает `AlreadyExists`.
+## Следующие спринты (план)
 
----
+### Sprint 3 - Identity and Slot Policy
+- OTP-подтверждение телефона.
+- Слоты 4/8/12 часов.
+- Ночной слот `20:00-08:00` только для курьеров на авто.
+- Fair-allocation дефицитных слотов (чтобы 4-часовые смены не монополизировали пул).
 
-## Что уже сделано по стабилизации (2026-02-12)
+### Sprint 4 - Dispatch Rules v1
+- Назначение курьера по зоне, транспорту и текущей занятости.
+- Ограничения по весу/габаритам заказа в зависимости от транспорта.
+- Fallback/reassign при отказе или таймауте принятия заказа.
 
-- Добавлен управляемый graceful shutdown для фоновых saga-задач.
-- Добавлен `grpc health` registration.
-- Добавлен endpoint `readyz` в HTTP health surface.
-- Устранён флак интеграционных тестов по timeline-событиям.
-- Обновлены ключевые документы и ссылки.
+### Sprint 5 - Courier Rating and Quality
+- Рейтинг 1..5.
+- Для 5 звезд: положительные теги (вежливость, по графику и т.д.).
+- Для <3: обязательные причины (задержка, поведение, проблемы с заказом).
+- Quality-score для операционного контроля.
 
----
+### Sprint 6 - Dynamic Pricing
+- Surge при высокой занятости курьеров.
+- Учет пробок (приоритетно влияет на авто).
+- Учет погоды (приоритетно влияет на вело/самокат).
+- Ночной тариф применяется по конфигурируемым зонам.
 
-## Следующий шаг
+### Sprint 7 - External Integrations and Resilience
+- Гео/маршруты: Yandex Maps API (через адаптер).
+- Погода/трафик: внешние провайдеры с fallback.
+- SLA-защита интеграций: timeout/retry/circuit breaker/cache/degraded mode.
 
-Завершить hardening **Outbox + Idempotency**: добавить операционные алерты/регламент репроцессинга DLQ, TTL-cleanup job для `idempotency_keys` и формализовать политику retention.
-
-Параллельный техдолг по качеству кода: убрать скрытые fallback'и в конфиге, вынести магические значения в константы и поддерживать единый вход тестовых прогонов через `test/run/*`.
+## Принципы исполнения
+- Scope-first: не делать массовые рефакторинги вне активного спринта.
+- Dependency discipline: не апдейтить Go/toolchain/deps без отдельной maintenance-задачи.
+- Backward compatibility для DB/API, если не согласовано иное.
+- Источник истины по готовности: зелёный CI + проверяемые артефакты (тесты/логи/метрики).

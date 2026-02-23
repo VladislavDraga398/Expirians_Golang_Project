@@ -3,15 +3,15 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
-[![Coverage](https://img.shields.io/badge/coverage-44%25-yellow.svg)]()
+[![Coverage Policy](https://img.shields.io/badge/coverage%20policy-80%25-brightgreen.svg)]()
 
-**Production-ready микросервис** для управления заказами с реализацией **Saga Pattern** и **Event-Driven Architecture** через Apache Kafka.
+**Модульный монолит OMS** с надёжным ядром заказа и roadmap расширения в delivery-продукт **BoostMarket**.
 
 ## Статус проекта
 
-- **Версия:** v2.1
-- **Статус:** Stabilization + Phase 6 Execution
-- **Последнее обновление:** 2026-02-12
+- **Версия:** v3.0
+- **Статус:** Sprint 2 Active (Delivery Domain Foundation)
+- **Последнее обновление:** 2026-02-23
 
 ## Ключевые возможности
 
@@ -60,8 +60,8 @@
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/vladislavdragonenkov/oms.git
-cd oms
+git clone https://github.com/VladislavDraga398/Expirians_Golang_Project.git
+cd Expirians_Golang_Project
 
 # Установить зависимости
 make deps
@@ -86,6 +86,8 @@ make docker-run
 # Вариант 3: Полное демо с тестовыми сценариями
 make demo
 ```
+
+Если используется `OMS_STORAGE_DRIVER=postgres`, сейчас требуется `OMS_ALLOW_MOCK_INTEGRATIONS=true` (реальные Inventory/Payment интеграции пока не внедрены в runtime).
 
 ## Тестирование
 
@@ -142,7 +144,7 @@ make dlq-reprocess LIMIT=50 EXECUTE=1 FROM_NEWEST=1
 ### CreateOrder
 
 ```bash
-grpcurl -plaintext -d '{
+grpcurl -plaintext -H 'idempotency-key: readme-create-001' -d '{
   "customer_id": "customer-123",
   "currency": "USD",
   "items": [{
@@ -156,7 +158,7 @@ grpcurl -plaintext -d '{
 ### PayOrder
 
 ```bash
-grpcurl -plaintext -d '{
+grpcurl -plaintext -H 'idempotency-key: readme-pay-001' -d '{
   "order_id": "order-123"
 }' localhost:50051 oms.v1.OrderService/PayOrder
 ```
@@ -176,9 +178,11 @@ grpcurl -plaintext -d '{
 После запуска `make demo` доступны:
 
 - **Prometheus:** http://localhost:9091
-- **Grafana:** http://localhost:3000 (admin/admin)
+- **Grafana:** http://localhost:3000 (`GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`, по умолчанию `admin/admin`)
   - Dashboard: OMS → OMS Saga Overview
 - **Kafka UI:** http://localhost:8080
+
+Порты стенда по умолчанию публикуются только на `127.0.0.1` (настраивается через `HOST_BIND_ADDR`).
 
 ### Ключевые метрики
 
@@ -239,6 +243,7 @@ git commit -m "feat: add new feature"
 - Основной поток: `feature/* -> dev -> main`.
 - Временный тестовый стенд живет в CI (GitHub Actions), а не в отдельной git-ветке.
 - Для каждого PR запускается `premerge_stand`: PR в `dev` использует быстрый dev-профиль, PR в `main`/`master` использует усиленный release-профиль.
+- В `premerge_stand` load gate проверяет бизнес-поток `create-pay-cancel`, а не только `create`.
 - Merge разрешен только после успешных checks (`Lint`, `Tests`, `Build`, `Pre-Merge Stand`).
 
 ### Pre-commit hook
@@ -264,13 +269,10 @@ git config core.hooksPath .githooks
 
 ## Roadmap
 
-Текущие 6 приоритетов:
-- 1.  Stabilize baseline: `go test -race ./...` и интеграционные тесты без флаков
-- 2.  Graceful shutdown path: корректное завершение API и фоновых saga-задач
-- 3.  Documentation consolidation: актуальные ссылки, единая навигация, честные статусы
-- 4.  PostgreSQL migration: заменить in-memory runtime-хранилище
-- 5.  Outbox publisher worker: pending -> sent/failed + retries + DLQ
-- 6.  Idempotency enforcement: metadata key + хранилище + replay-safe поведение
+Текущий программный статус:
+- Sprint 1 (`Core Hardening`) завершён: стабилизировано runtime-ядро OMS, усилены outbox/idempotency/CI.
+- Sprint 2 (`Delivery Domain Foundation`) в работе: курьеры, зоны Москвы, транспорт, слоты и ограничения ёмкости.
+- Дальше по плану: рейтинг курьеров, dispatch-алгоритм, динамическое ценообразование, внешние geo/weather/traffic API.
 
 Детали: [docs/roadmap.md](docs/roadmap.md)
 

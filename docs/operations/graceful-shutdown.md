@@ -2,7 +2,7 @@
 
 > Штатное и безопасное завершение OMS без потери in-flight операций
 
-**Версия:** v2.1 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
 ---
 
@@ -12,6 +12,7 @@
 - перестать принимать новые RPC;
 - завершить текущие RPC;
 - дождаться фоновых saga-задач;
+- остановить фоновые worker-процессы (outbox, idempotency cleanup);
 - корректно остановить HTTP/metrics;
 - закрыть Kafka producer.
 
@@ -24,8 +25,10 @@
 В `internal/app/app.go` реализована последовательность:
 1. `grpcServer.GracefulStop()` с fallback на `grpcServer.Stop()` после таймаута 5 секунд.
 2. `orderService.Shutdown(ctx)` — ожидание завершения фоновых saga-задач.
-3. `shutdownHTTP(metricsSrv)` — корректная остановка HTTP сервера (`/metrics`, `/healthz`, `/livez`, `/readyz`).
-4. `kafkaProducer.Close()` — закрытие producer.
+3. `shutdownOutboxWorker(...)` — остановка outbox worker.
+4. `shutdownIdempotencyCleanupWorker(...)` — остановка cleanup worker.
+5. `shutdownHTTP(metricsSrv)` — корректная остановка HTTP сервера (`/metrics`, `/healthz`, `/livez`, `/readyz`).
+6. `kafkaProducer.Close()` — закрытие producer.
 
 В `internal/service/grpc/order_service.go`:
 - фоновые saga-dispatch (`PayOrder/CancelOrder/RefundOrder`) учитываются через `WaitGroup`;
@@ -75,6 +78,7 @@
 
 - Если `graceful stop` gRPC зависает >5s: выполняется `grpcServer.Stop()`.
 - Если фоновые saga не завершились в timeout: `Shutdown(ctx)` вернёт timeout-ошибку.
+- Если outbox/idempotency worker не завершились в timeout: фиксируется warning в логах, процесс завершения продолжается.
 - Если Kafka close завершился ошибкой: ошибка логируется, завершение процесса продолжается.
 
 ---

@@ -2,6 +2,8 @@
 
 Запустите OMS за **5 минут**!
 
+**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
+
 ---
 
 ## Предварительные требования
@@ -26,8 +28,8 @@ make --version    # GNU Make
 
 ```bash
 # Клонировать репозиторий
-git clone https://github.com/vladislavdragonenkov/oms.git
-cd oms
+git clone https://github.com/VladislavDraga398/Expirians_Golang_Project.git
+cd Expirians_Golang_Project
 
 # Установить зависимости
 make deps
@@ -52,6 +54,8 @@ make wait-health
 - Grafana (http://localhost:3000)
 - Postgres (localhost:5432, опционально для режима `OMS_STORAGE_DRIVER=postgres`)
 
+По умолчанию порты публикуются только на `127.0.0.1` (можно переопределить через `HOST_BIND_ADDR` в `.env`).
+
 ---
 
 ## Шаг 3: Запуск сервиса (1 мин)
@@ -70,6 +74,7 @@ make run
 export OMS_STORAGE_DRIVER=postgres
 export OMS_POSTGRES_DSN='postgres://oms:oms@localhost:5432/oms?sslmode=disable'
 export OMS_POSTGRES_AUTO_MIGRATE=true
+export OMS_ALLOW_MOCK_INTEGRATIONS=true
 
 # (опционально) руками прогнать миграции
 make migrate-up
@@ -105,7 +110,7 @@ curl http://localhost:9090/healthz
 ```json
 {
   "status": "healthy",
-  "timestamp": "2025-10-01T...",
+  "timestamp": "2026-02-23T...",
   "version": "dev",
   "uptime_seconds": 5
 }
@@ -129,15 +134,17 @@ grpcurl -plaintext -d '{
       "amount_minor": 10000
     }
   }]
-}' localhost:50051 oms.v1.OrderService/CreateOrder
+}' -H 'idempotency-key: quickstart-create-001' localhost:50051 oms.v1.OrderService/CreateOrder
 ```
 
 Ожидаемый ответ:
 ```json
 {
-  "order_id": "01HQZX...",
-  "status": "ORDER_STATUS_PENDING",
-  "created_at": "2025-10-01T..."
+  "order": {
+    "id": "01HQZX...",
+    "status": "ORDER_STATUS_PENDING",
+    "currency": "USD"
+  }
 }
 ```
 
@@ -151,7 +158,8 @@ make demo
 
 # Откроется Grafana с метриками
 open http://localhost:3000
-# Логин: admin / Пароль: admin
+# Логин/пароль берутся из GRAFANA_ADMIN_USER / GRAFANA_ADMIN_PASSWORD
+# (по умолчанию: admin / admin)
 # Dashboard: OMS → OMS Saga Overview
 ```
 
@@ -281,7 +289,7 @@ make bench               # Бенчмарки
 
 - **Документация:** [INDEX.md](INDEX.md)
 - **API примеры:** [guides/api-examples.md](guides/api-examples.md)
-- **Issues:** https://github.com/vladislavdragonenkov/oms/issues
+- **Issues:** https://github.com/VladislavDraga398/Expirians_Golang_Project/issues
 
 ---
 

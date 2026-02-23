@@ -1,100 +1,67 @@
 # Saga Orchestration
 
-> Оркестрация распределённых транзакций через Saga Pattern
+> Текущая реализация orchestration-потока для lifecycle заказа
 
-**Версия:** v2.0 | **Обновлено:** 2025-10-01 | **Статус:** Актуально
+**Версия:** v2.1 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
 ---
 
 ## TL;DR
-- Основной поток: Create → Reserve → Pay → Confirm.
-- Компенсации: при отказе — Release → Cancel; при отмене после оплаты — Refund → Cancel.
-- Таймауты и ретраи: короткие дедлайны, экспоненциальный backoff + jitter; `unknown` → сначала reconcile.
-- Идемпотентность: шаги повторяемы без «двойного эффекта», события — через outbox, consumer с дедупликацией.
-
-## Назначение
-Детальный дизайн оркестрации саг: состояния, шаги, компенсации, таймауты/ретраи, идемпотентность и краевые случаи.
+- Основной сценарий: `Create -> PayOrder -> Start saga -> Reserve -> Pay -> Confirm`.
+- Компенсации: при ошибках выполняются `Release` и/или `Refund`, итоговый статус обычно `canceled`.
+- Выполнение saga асинхронное относительно gRPC mutating RPC.
+- Идемпотентность внешнего вызова обеспечивается на уровне `idempotency-key` в gRPC layer.
 
 ## Машина состояний заказа
+
 ```mermaid
 stateDiagram-v2
   [*] --> pending
   pending --> reserved: Reserve OK
   reserved --> paid: Payment OK
   paid --> confirmed: Confirm OK
-  reserved --> canceled: Reserve Fail / Cancel
-  paid --> refunded: Cancel after Pay / Refund OK
-  confirmed --> [*]
-  canceled --> [*]
-  refunded --> [*]
+  pending --> canceled: Reserve Fail
+  reserved --> canceled: Payment Fail + Release
+  paid --> canceled: Cancel + Refund
+  confirmed --> canceled: Cancel + Refund
+  paid --> refunded: RefundOrder
+  confirmed --> refunded: RefundOrder
 ```
 
-## Основной поток и компенсации
-```mermaid
-sequenceDiagram
-  autonumber
-  participant C as Client
-  participant O as OrderService (Orchestrator)
-  participant I as InventoryService
-  participant P as PaymentService
+## Что делает оркестратор сейчас
 
-  C->>O: CreateOrder
-  O->>O: Persist Order(pending) + Outbox(StartSaga)
-  O-->>C: 201 {status: pending}
+### `Start(orderID)`
+1. Загружает заказ.
+2. Если `status=pending` -> пробует Reserve.
+3. Если `status=reserved` -> пробует Pay.
+4. Если `status=paid` -> Confirm.
+5. Для уже терминальных/обработанных статусов — no-op.
 
-  O->>I: Reserve(order_items)
-  alt Reserve OK
-    I-->>O: reserved
-    O->>P: Pay(order_id, amount)
-    alt Pay OK
-      P-->>O: paid
-      O->>O: Update Order -> confirmed + Outbox(OrderStatusChanged)
-    else Pay Fail
-      P-->>O: fail
-      O->>I: Release(order_items)
-      O->>O: Update Order -> canceled + Outbox(OrderStatusChanged)
-    end
-  else Reserve Fail
-    I-->>O: fail
-    O->>O: Update Order -> canceled + Outbox(OrderStatusChanged)
-  end
-```
+### `Cancel(orderID, reason)`
+- Для `reserved|paid|confirmed` освобождает резерв.
+- Для `paid|confirmed` дополнительно вызывает Refund.
+- Переводит заказ в `canceled`.
 
-## Таймауты и ретраи
-- Reserve: дедлайн 1–5 с; до 3 попыток с экспоненциальной задержкой и jitter.
-- Pay (Hold/Capture): дедлайн 3–10 с; 3–5 попыток; при `indeterminate` — reconcile статуса.
-- Release/Refund (компенсации): до 5 попыток, повышенный приоритет.
+### `Refund(orderID, amount, reason)`
+- Доступен для `paid|confirmed`.
+- После успешного refund переводит заказ в `refunded`.
 
-## Классификация ошибок
-- Временные (transient): сеть/таймауты — ретраи.
-- Бизнес-отказы: нехватка стока, отклонён платёж — компенсации.
-- Неопределённые: неизвестный исход — сначала reconcile, затем решение.
-
-## Идемпотентность шагов
-- Внешние вызовы должны быть идемпотентны по `order_id`/`payment_id`.
-- Внутренние обновления защищены optimistic locking по `orders.version`.
-- События публикуются через outbox; потребители выполняют дедупликацию.
-
-## Ре-энтерабельность и восстановление
-- Оркестратор безопасно повторяет шаги после рестарта, сверяясь с текущим статусом заказа.
-- При сбое между шагами: переоценка состояния и продолжение или компенсация.
-
-## Стратегия конкуренции
-- Один активный оркестратор на `order_id` (шардинг/очередь по ключу).
-- При конфликте версий: ретрай с backoff; при «горячем» ключе — очередь/лок на ключ.
-
-## Краевые случаи
-- Повторная попытка оплаты: обеспечивать идемпотентность у провайдера и делать reconcile перед новой попыткой.
-- Частичный резерв (вне MVP): либо «всё или ничего», либо отдельный поток.
-- Неопределённый статус оплаты (202): периодические проверки; подтверждать только при `paid`.
-- Сбой компенсации: агрессивные ретраи, DLQ, ручной runbook.
+## Обработка ошибок
+- Ошибки резервирования/оплаты приводят к компенсации и переходу в терминальное состояние.
+- Конфликты optimistic locking обрабатываются retry-механикой внутри save/update path.
+- Retry-wrapper (`RetryableOrchestrator`) для `Start/Cancel/Refund` сейчас логически отключён, так как методы интерфейса не возвращают `error`.
 
 ## Наблюдаемость
-- Спаны: на каждый шаг; атрибуты `order.id`, `saga.step`, `retry.attempt`, `dep.name`.
-- Метрики: `saga_step_duration_seconds`, `saga_flow_transitions_total`, `order_e2e_latency_seconds`.
+- Метрики по сагам: старт/успех/ошибка/длительность/in-flight.
+- Timeline события сохраняются для ключевых переходов статусов.
+- События saga/order публикуются в Kafka через outbox-путь.
 
-## Альтернативы
-- Хореография (слабая связность, сложные компенсации).
-- TCC (требует Try/Confirm/Cancel у зависимостей).
-- Workflow-движок (Temporal) для длинных и сложных процессов.
+## Ограничения текущей версии
+- Нет workflow-engine уровня Temporal/Step Functions.
+- Нет внешнего дедуп/reconcile процесса по платежам (кроме текущих доменных проверок).
+- Нет fine-grained retry policy per external step на уровне публичного API оркестратора.
 
+## Связанные документы
+- `docs/architecture/outbox.md`
+- `docs/architecture/idempotency.md`
+- `docs/operations/runbooks.md`

@@ -2,7 +2,7 @@
 
 REST API поверх gRPC через gRPC-Gateway.
 
-> Статус на 2026-02-12: в runtime OMS сейчас включён только gRPC сервер; REST gateway остаётся как планируемое расширение.
+> Статус на 2026-02-23: в runtime OMS сейчас включён только gRPC сервер; REST gateway остаётся как планируемое расширение.
 
 ## Обзор
 
@@ -25,10 +25,10 @@ gRPC-Gateway автоматически генерирует RESTful HTTP API и
 brew install protobuf
 
 # Установить плагины
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@v2.27.2
+go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@v2.27.2
 ```
 
 ### Генерация кода

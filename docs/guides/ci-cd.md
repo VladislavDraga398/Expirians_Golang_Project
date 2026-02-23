@@ -2,7 +2,7 @@
 
 Автоматизированный pipeline для проверки, тестирования и merge-gate проекта OMS.
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-12
+**Версия:** v2.3 | **Обновлено:** 2026-02-23
 
 ---
 
@@ -61,7 +61,7 @@
 - проверяет `/healthz`
 - выполняет lifecycle smoke (`scripts/saga_load.sh`)
 - выполняет observability gate (`scripts/ci/observability_gate.sh`)
-- выполняет load gate (`scripts/ci/load_gate.sh`, внутри запускается `go run ./cmd/loadtest`)
+- выполняет load gate (`scripts/ci/load_gate.sh`, внутри запускается `go run ./cmd/loadtest`) в режиме `MODE=create-pay-cancel`
 - при падении блокирует merge
 
 ### `docker` (push only)
@@ -133,7 +133,7 @@ ITERATIONS=40 CANCEL_RATE=20 ./scripts/saga_load.sh
 CHECK_PROMETHEUS=1 ./scripts/ci/observability_gate.sh
 
 # Load gate (dev профиль)
-MAX_ERROR_RATE=0.020 MAX_P95_MS=500 MAX_AVG_MS=180 TOTAL=200 CONCURRENCY=20 CONNECTIONS=10 ./scripts/ci/load_gate.sh
+MODE=create-pay-cancel CANCEL_RATE=20 MAX_ERROR_RATE=0.020 MAX_P95_MS=500 MAX_AVG_MS=180 TOTAL=200 CONCURRENCY=20 CONNECTIONS=10 ./scripts/ci/load_gate.sh
 
 # Cleanup
 docker compose down -v
@@ -146,6 +146,7 @@ docker compose down -v
 1. Проверить артефакт `premerge-stand-logs` в GitHub Actions.
 2. Локально воспроизвести шаги из секции выше.
 3. Проверить доступность `/healthz`, `/livez`, `/readyz`, `/metrics`, наличие бизнес-метрик `oms_*`, статус scrape в Prometheus (`up{job="oms"} == 1`) и соблюдение latency/error порогов.
+4. Если `observability_gate` флапает сразу после smoke, увеличить `METRICS_SETTLE_TIMEOUT` (по умолчанию 20с) для ожидания асинхронных saga-обновлений метрик.
 
 ---
 

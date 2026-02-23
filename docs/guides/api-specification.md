@@ -2,27 +2,27 @@
 
 > Спецификация gRPC API для OMS
 
-**Версия:** v2.1 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
 ---
 
 ## TL;DR
-- Публичный `OrderService` + внутренние `InventoryService`/`PaymentService`.
-- Метаданные: `x-correlation-id` (в runtime), `idempotency-key` (план внедрения).
+- Публичный `OrderService` (gRPC) — основной runtime-контракт.
+- Для mutating RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`) `idempotency-key` обязателен.
 - Ошибки: gRPC codes + details; `AlreadyExists` при конфликте ключа идемпотентности.
-- Пагинация: keyset через `page_token`.
+- REST-gateway маппинг описан в proto, но в текущем runtime gateway не поднят.
 
 ## Назначение
-Публичные и внутренние gRPC-контракты (orders, inventory, payment) и рекомендации по ошибкам, идемпотентности, пагинации и опциональному REST-gateway.
+Публичный gRPC-контракт (`OrderService`) и правила обработки ошибок/идемпотентности.
 
 ## Версионирование и пакет
 - Версия API: v1
 - Пакет: `oms.v1`
 
 ## Метаданные
-- `x-correlation-id` может использоваться для трассировки запросов.
-- `idempotency-key` находится в плане внедрения и пока не обязателен в runtime.
-- Корреляция: `x-correlation-id` (генерируется, если отсутствует).
+- `idempotency-key` обязателен для mutating RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`).
+- Для `GetOrder`/`ListOrders` `idempotency-key` не требуется.
+- `x-correlation-id` как обязательный runtime-контракт пока не введён (может использоваться внешним слоем).
 
 ## Модель ошибок
 - Используем gRPC status codes с расширенными деталями.
@@ -31,7 +31,7 @@
   - AlreadyExists — ключ идемпотентности переиспользован с другим payload.
   - NotFound — заказ не найден.
   - FailedPrecondition — некорректный переход состояния.
-  - Aborted — конфликт optimistic locking.
+  - Aborted — конфликт optimistic locking или запрос с тем же `idempotency-key` уже находится в `processing`.
   - DeadlineExceeded/Unavailable — проблемы зависимостей/временные сбои.
 
 ## OrderService (публичный)
@@ -43,7 +43,7 @@
   - `CancelOrder(CancelOrderRequest) returns (CancelOrderResponse)`
   - `RefundOrder(RefundOrderRequest) returns (RefundOrderResponse)`
 
--- Сообщения (фрагмент)
+## Сообщения (фрагмент)
 ```proto
 message Money { string currency = 1; int64 amount_minor = 2; }
 message OrderItem { string sku = 1; int32 qty = 2; Money price = 3; }
@@ -63,19 +63,11 @@ message Order {
   string customer_id = 2;
   OrderStatus status = 3;
   Money amount = 4;
-  repeated OrderItem items = 6;
-  int64 version = 7;
+  repeated OrderItem items = 5;
+  int64 version = 6;
+  string currency = 7;
 }
 ```
-
-## InventoryService (внутренний)
-- `Reserve(ReserveRequest) returns (ReserveResponse)`
-- `Release(ReleaseRequest) returns (ReleaseResponse)`
-
-## PaymentService (внутренний)
-- `Hold(HoldRequest) returns (HoldResponse)`
-- `Capture(CaptureRequest) returns (CaptureResponse)`
-- `Refund(RefundRequest) returns (RefundResponse)`
 
 ## События (асинхронные контракты)
 - `OrderStatusChanged { order_id, prev_status, new_status, reason, seq, occurred_at, schema_version }`
@@ -83,17 +75,20 @@ message Order {
 - Ключ дедупликации: `(order_id, event_type, seq)`.
 
 ## Пагинация
-- `ListOrders`: `page_size` 1..100 (по умолчанию 20), `page_token` (opaque keyset).
+- Текущий runtime `ListOrders` использует `customer_id` + `page_size` (limit).
+- `page_token` и `filter_statuses` зарезервированы в proto, но пока не задействованы в runtime.
+- `next_page_token` пока возвращается пустым.
 
 ## REST Gateway (опционально)
 - Примеры мэппинга:
   - POST `/v1/orders` → `CreateOrder`
-  - GET `/v1/orders/{id}` → `GetOrder`
+  - GET `/v1/orders/{order_id}` → `GetOrder`
   - GET `/v1/orders` → `ListOrders`
-  - POST `/v1/orders/{id}:pay` → `PayOrder`
-  - POST `/v1/orders/{id}:cancel` → `CancelOrder`
-  - POST `/v1/orders/{id}:refund` → `RefundOrder`
+  - POST `/v1/orders/{order_id}/pay` → `PayOrder`
+  - POST `/v1/orders/{order_id}/cancel` → `CancelOrder`
+  - POST `/v1/orders/{order_id}/refund` → `RefundOrder`
 
 ## Поведение идемпотентности
-- Целевое поведение (после внедрения): один и тот же ключ → идентичный ответ/код.
-- Целевое поведение: конфликт ключа с иным `request_hash` → `AlreadyExists`/`InvalidArgument`.
+- Runtime-поведение: один и тот же ключ + тот же payload → повторно возвращается сохранённый ответ.
+- Конфликт ключа с иным `request_hash` → `AlreadyExists`.
+- Повтор с ключом в статусе `processing` → `Aborted`.
