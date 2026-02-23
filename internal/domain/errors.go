@@ -53,6 +53,48 @@ var (
 	ErrIdempotencyKeyAlreadyExists = errors.New("idempotency key already exists")
 	// ErrIdempotencyHashMismatch — ключ переиспользован с другим телом запроса.
 	ErrIdempotencyHashMismatch = errors.New("idempotency request hash mismatch")
+	// ErrCourierIDRequired — отсутствует идентификатор курьера.
+	ErrCourierIDRequired = errors.New("courier id is required")
+	// ErrCourierPhoneRequired — отсутствует номер телефона курьера.
+	ErrCourierPhoneRequired = errors.New("courier phone is required")
+	// ErrCourierPhoneFormatInvalid — номер телефона не прошёл форматную валидацию.
+	ErrCourierPhoneFormatInvalid = errors.New("courier phone format is invalid")
+	// ErrCourierFirstNameRequired — отсутствует имя курьера.
+	ErrCourierFirstNameRequired = errors.New("courier first name is required")
+	// ErrCourierLastNameRequired — отсутствует фамилия курьера.
+	ErrCourierLastNameRequired = errors.New("courier last name is required")
+	// ErrCourierVehicleTypeInvalid — указан неподдерживаемый тип транспорта.
+	ErrCourierVehicleTypeInvalid = errors.New("courier vehicle type is invalid")
+	// ErrCourierNotFound — курьер не найден в репозитории.
+	ErrCourierNotFound = errors.New("courier not found")
+	// ErrCourierAlreadyExists — курьер с таким ID уже существует.
+	ErrCourierAlreadyExists = errors.New("courier already exists")
+	// ErrCourierPhoneAlreadyExists — номер телефона уже привязан к другому курьеру.
+	ErrCourierPhoneAlreadyExists = errors.New("courier phone already exists")
+	// ErrCourierZoneRequired — не указан идентификатор зоны курьера.
+	ErrCourierZoneRequired = errors.New("courier zone is required")
+	// ErrCourierZoneLimitExceeded — превышено допустимое количество зон для типа транспорта.
+	ErrCourierZoneLimitExceeded = errors.New("courier zone limit exceeded")
+	// ErrCourierZonesRequired — курьеру должна быть назначена хотя бы одна зона.
+	ErrCourierZonesRequired = errors.New("courier zones are required")
+	// ErrCourierZoneDuplicate — повторяющаяся зона в одном запросе назначения.
+	ErrCourierZoneDuplicate = errors.New("courier zone duplicate")
+	// ErrCourierPrimaryZoneConflict — в запросе указано более одной primary-зоны.
+	ErrCourierPrimaryZoneConflict = errors.New("courier primary zone conflict")
+	// ErrCourierZoneCapacityExceeded — превышен лимит курьеров по зоне.
+	ErrCourierZoneCapacityExceeded = errors.New("courier zone capacity exceeded")
+	// ErrCourierSlotIDRequired — отсутствует идентификатор слота.
+	ErrCourierSlotIDRequired = errors.New("courier slot id is required")
+	// ErrCourierSlotDurationInvalid — длительность слота отличается от поддерживаемых значений.
+	ErrCourierSlotDurationInvalid = errors.New("courier slot duration is invalid")
+	// ErrCourierSlotDurationMismatch — временной интервал слота не совпадает с duration_hours.
+	ErrCourierSlotDurationMismatch = errors.New("courier slot duration mismatch")
+	// ErrCourierSlotRangeInvalid — временной диапазон слота некорректен.
+	ErrCourierSlotRangeInvalid = errors.New("courier slot range is invalid")
+	// ErrCourierSlotStatusInvalid — статус слота курьера не поддерживается.
+	ErrCourierSlotStatusInvalid = errors.New("courier slot status is invalid")
+	// ErrCourierSlotConflict — слот пересекается с существующим или дублируется.
+	ErrCourierSlotConflict = errors.New("courier slot conflict")
 )
 
 // IsVersionConflict проверяет, является ли ошибка конфликтом версий.

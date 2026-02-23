@@ -76,6 +76,9 @@ func truncateAllTablesForIntegrationTest(t *testing.T, store *Store) {
 			outbox_messages,
 			timeline_events,
 			order_items,
+			courier_slots,
+			courier_zones,
+			couriers,
 			orders
 		RESTART IDENTITY CASCADE
 	`)

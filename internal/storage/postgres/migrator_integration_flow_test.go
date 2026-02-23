@@ -32,7 +32,7 @@ func TestMigrator_PostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migration status after up all: %v", err)
 	}
-	if version != 2 || count != 2 {
+	if version != 3 || count != 3 {
 		t.Fatalf("unexpected status after up all: version=%d count=%d", version, count)
 	}
 
@@ -44,7 +44,7 @@ func TestMigrator_PostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migration status after idempotent up: %v", err)
 	}
-	if version != 2 || count != 2 {
+	if version != 3 || count != 3 {
 		t.Fatalf("unexpected status after idempotent up: version=%d count=%d", version, count)
 	}
 
@@ -55,7 +55,7 @@ func TestMigrator_PostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migration status after down 1: %v", err)
 	}
-	if version != 1 || count != 1 {
+	if version != 2 || count != 2 {
 		t.Fatalf("unexpected status after down 1: version=%d count=%d", version, count)
 	}
 
@@ -66,8 +66,19 @@ func TestMigrator_PostgresLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migration status after down default: %v", err)
 	}
-	if version != 0 || count != 0 {
+	if version != 1 || count != 1 {
 		t.Fatalf("unexpected status after down default: version=%d count=%d", version, count)
+	}
+
+	if err := store.MigrateDown(ctx, 1); err != nil {
+		t.Fatalf("migrate down final step: %v", err)
+	}
+	version, count, err = store.MigrationStatus(ctx)
+	if err != nil {
+		t.Fatalf("migration status after down to zero: %v", err)
+	}
+	if version != 0 || count != 0 {
+		t.Fatalf("unexpected status after down to zero: version=%d count=%d", version, count)
 	}
 
 	// No-op down on empty state.
