@@ -75,6 +75,8 @@ PROM_URL=${PROM_URL:-http://localhost:9091}
 CHECK_PROMETHEUS=${CHECK_PROMETHEUS:-0}
 PROM_READY_TIMEOUT=${PROM_READY_TIMEOUT:-60}
 PROM_SCRAPE_TIMEOUT=${PROM_SCRAPE_TIMEOUT:-45}
+METRICS_SETTLE_TIMEOUT=${METRICS_SETTLE_TIMEOUT:-20}
+METRICS_SETTLE_INTERVAL=${METRICS_SETTLE_INTERVAL:-1}
 
 METRICS_FILE=${METRICS_FILE:-/tmp/oms-metrics.prom}
 
@@ -114,15 +116,38 @@ if [[ "$fail" -eq 0 ]]; then
 fi
 
 if [[ "$fail" -eq 0 ]]; then
-  saga_started=$(metric_sum "oms_saga_started_total" "$METRICS_FILE")
-  saga_completed=$(metric_sum "oms_saga_completed_total" "$METRICS_FILE")
-  saga_canceled=$(metric_sum "oms_saga_canceled_total" "$METRICS_FILE")
-  saga_failed=$(metric_sum "oms_saga_failed_total" "$METRICS_FILE")
-  active_sagas=$(metric_sum "oms_active_sagas" "$METRICS_FILE")
-  saga_duration_count=$(metric_sum "oms_saga_duration_seconds_count" "$METRICS_FILE")
-  timeline_events=$(metric_sum "oms_timeline_events_total" "$METRICS_FILE")
+  settle_deadline=$((SECONDS + METRICS_SETTLE_TIMEOUT))
+  while :; do
+    saga_started=$(metric_sum "oms_saga_started_total" "$METRICS_FILE")
+    saga_completed=$(metric_sum "oms_saga_completed_total" "$METRICS_FILE")
+    saga_canceled=$(metric_sum "oms_saga_canceled_total" "$METRICS_FILE")
+    saga_failed=$(metric_sum "oms_saga_failed_total" "$METRICS_FILE")
+    active_sagas=$(metric_sum "oms_active_sagas" "$METRICS_FILE")
+    saga_duration_count=$(metric_sum "oms_saga_duration_seconds_count" "$METRICS_FILE")
+    timeline_events=$(metric_sum "oms_timeline_events_total" "$METRICS_FILE")
 
-  terminal_sagas=$(awk -v c="$saga_completed" -v k="$saga_canceled" -v f="$saga_failed" 'BEGIN { printf "%.6f", c + k + f }')
+    terminal_sagas=$(awk -v c="$saga_completed" -v k="$saga_canceled" -v f="$saga_failed" 'BEGIN { printf "%.6f", c + k + f }')
+
+    if float_gt "$saga_started" "0" &&
+      float_gt "$terminal_sagas" "0" &&
+      float_gt "$saga_duration_count" "0" &&
+      float_gt "$timeline_events" "0"; then
+      break
+    fi
+
+    if (( SECONDS >= settle_deadline )); then
+      echo "Metrics did not reach expected values within ${METRICS_SETTLE_TIMEOUT}s"
+      fail=1
+      break
+    fi
+
+    sleep "$METRICS_SETTLE_INTERVAL"
+    if ! curl -fsS "$METRICS_URL" -o "$METRICS_FILE"; then
+      echo "Failed to refresh metrics from $METRICS_URL"
+      fail=1
+      break
+    fi
+  done
 
   echo "Observability counters"
   echo "saga_started:   $saga_started"

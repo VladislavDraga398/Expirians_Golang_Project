@@ -90,3 +90,38 @@ func TestIdempotencyRepository_MarkDoneAndDeleteExpired(t *testing.T) {
 		t.Fatalf("expected expired key to be deleted, got %v", err)
 	}
 }
+
+func TestIdempotencyRepository_MarkFailed(t *testing.T) {
+	repo := memory.NewIdempotencyRepository()
+	ttl := time.Now().UTC().Add(time.Hour)
+
+	if _, err := repo.CreateProcessing("idem-failed", "hash-failed", ttl); err != nil {
+		t.Fatalf("CreateProcessing failed: %v", err)
+	}
+
+	if err := repo.MarkFailed("idem-failed", []byte(`{"error":"boom"}`), 409); err != nil {
+		t.Fatalf("MarkFailed failed: %v", err)
+	}
+
+	got, err := repo.Get("idem-failed")
+	if err != nil {
+		t.Fatalf("Get failed: %v", err)
+	}
+	if got.Status != domain.IdempotencyStatusFailed {
+		t.Fatalf("expected status %s, got %s", domain.IdempotencyStatusFailed, got.Status)
+	}
+	if got.HTTPStatus != 409 {
+		t.Fatalf("expected HTTP status 409, got %d", got.HTTPStatus)
+	}
+	if string(got.ResponseBody) != `{"error":"boom"}` {
+		t.Fatalf("unexpected response body: %s", string(got.ResponseBody))
+	}
+
+	if err := repo.MarkFailed("missing-idem", []byte("x"), 500); !errors.Is(err, domain.ErrIdempotencyKeyNotFound) {
+		t.Fatalf("expected ErrIdempotencyKeyNotFound, got %v", err)
+	}
+
+	if err := repo.MarkFailed("   ", []byte("x"), 500); !errors.Is(err, domain.ErrIdempotencyKeyRequired) {
+		t.Fatalf("expected ErrIdempotencyKeyRequired, got %v", err)
+	}
+}

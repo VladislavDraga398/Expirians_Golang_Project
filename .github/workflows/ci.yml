@@ -281,6 +281,8 @@ jobs:
 
       - name: Run load gate
         run: |
+          MODE=create-pay-cancel \
+          CANCEL_RATE=${SMOKE_CANCEL_RATE} \
           MAX_ERROR_RATE=${LOAD_MAX_ERROR_RATE} \
           MAX_P95_MS=${LOAD_MAX_P95_MS} \
           MAX_AVG_MS=${LOAD_MAX_AVG_MS} \

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/vladislavdragonenkov/oms/internal/domain"
 )
 
@@ -84,6 +86,90 @@ func TestCleanupWorker_Run_StopsOnContextCancel(t *testing.T) {
 
 	if calls := repo.calls(); calls == 0 {
 		t.Fatal("expected cleanup to be called at least once")
+	}
+}
+
+func TestNewCleanupWorker_OptionsAndNormalization(t *testing.T) {
+	t.Parallel()
+
+	logger := log.WithField("test", "cleanup-worker")
+	worker := NewCleanupWorker(
+		&stubCleanupRepo{},
+		WithLogger(logger),
+		WithInterval(0),
+		WithBatchSize(0),
+	)
+
+	if worker.logger != logger {
+		t.Fatal("expected custom logger to be used")
+	}
+	if worker.interval != defaultCleanupInterval {
+		t.Fatalf("expected default interval %s, got %s", defaultCleanupInterval, worker.interval)
+	}
+	if worker.batchSize != defaultCleanupBatchSize {
+		t.Fatalf("expected default batch size %d, got %d", defaultCleanupBatchSize, worker.batchSize)
+	}
+}
+
+func TestCleanupWorker_Run_DisabledWhenRepoNil(t *testing.T) {
+	t.Parallel()
+
+	worker := NewCleanupWorker(nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.Run(context.Background())
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("worker.Run should return immediately when repo is nil")
+	}
+}
+
+func TestCleanupWorker_Cleanup_ErrorAndCanceled(t *testing.T) {
+	t.Parallel()
+
+	errRepo := &stubCleanupRepo{
+		deleteErrors: []error{errors.New("cleanup error")},
+	}
+	errWorker := NewCleanupWorker(errRepo, WithBatchSize(10))
+	errWorker.cleanup(context.Background(), time.Now().UTC())
+	if calls := errRepo.calls(); calls != 1 {
+		t.Fatalf("expected 1 delete call on error path, got %d", calls)
+	}
+
+	cancelRepo := &stubCleanupRepo{
+		deleteErrors: []error{context.Canceled},
+	}
+	cancelWorker := NewCleanupWorker(cancelRepo, WithBatchSize(10))
+	cancelWorker.cleanup(context.Background(), time.Now().UTC())
+	if calls := cancelRepo.calls(); calls != 1 {
+		t.Fatalf("expected 1 delete call on canceled path, got %d", calls)
+	}
+}
+
+func TestCleanupWorker_DeleteExpired_ContextCanceled(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubCleanupRepo{
+		deleteResults: []int{1},
+	}
+	worker := NewCleanupWorker(repo, WithBatchSize(10))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deleted, err := worker.DeleteExpired(ctx, time.Now().UTC())
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context canceled error, got %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("expected 0 deleted records, got %d", deleted)
+	}
+	if calls := repo.calls(); calls != 0 {
+		t.Fatalf("expected no delete calls when ctx already canceled, got %d", calls)
 	}
 }
 

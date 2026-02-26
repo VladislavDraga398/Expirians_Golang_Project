@@ -11,7 +11,6 @@ import (
 	"time"
 
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -40,6 +39,8 @@ const (
 
 	storagePingTimeout      = 2 * time.Second
 	gracefulShutdownTimeout = 5 * time.Second
+	kafkaInitTimeout        = 30 * time.Second
+	kafkaInitRetryDelay     = time.Second
 )
 
 // Config описывает минимальные настройки запуска приложения.
@@ -127,47 +128,47 @@ func Run(ctx context.Context, cfg Config) error {
 	rawKafkaBrokers := os.Getenv("KAFKA_BROKERS")
 	brokers := parseKafkaBrokers(rawKafkaBrokers)
 	if strings.TrimSpace(rawKafkaBrokers) != "" && len(brokers) == 0 {
-		logger.Warn("KAFKA_BROKERS is set but no valid broker addresses were parsed")
+		return fmt.Errorf("KAFKA_BROKERS is set but no valid broker addresses were parsed")
 	}
 	if len(brokers) > 0 {
-		producer, err := kafka.NewProducer(brokers)
+		producer, err := initKafkaProducerWithRetry(ctx, brokers, logger, kafkaInitTimeout, kafkaInitRetryDelay)
 		if err != nil {
-			logger.WithError(err).Warn("failed to create kafka producer, continuing without kafka")
-		} else {
-			kafkaProducer = producer
-			logger.WithField("brokers", brokers).Info("kafka producer initialized")
-
-			outboxWorker := outboxsvc.NewWorker(
-				deps.OutboxRepo,
-				kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicOrderEvents),
-				outboxsvc.WithDLQPublisher(kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicDeadLetterQueue)),
-				outboxsvc.WithLogger(logger.WithField("component", "outbox-worker")),
-				outboxsvc.WithPollInterval(cfg.OutboxPollInterval),
-				outboxsvc.WithBatchSize(cfg.OutboxBatchSize),
-				outboxsvc.WithMaxAttempts(cfg.OutboxMaxAttempts),
-				outboxsvc.WithRetryBaseDelay(cfg.OutboxRetryDelay),
-			)
-			workerCtx, workerCancel := context.WithCancel(ctx)
-			outboxWorkerCancel = workerCancel
-			outboxWorkerDone = make(chan struct{})
-			go func() {
-				defer close(outboxWorkerDone)
-				outboxWorker.Run(workerCtx)
-			}()
-
-			outboxChecker = healthcheck.NewSimpleChecker("outbox", func() error {
-				stats, err := deps.OutboxRepo.Stats()
-				if err != nil {
-					return err
-				}
-				if cfg.OutboxMaxPending > 0 && stats.PendingCount > cfg.OutboxMaxPending {
-					return fmt.Errorf("outbox backlog %d exceeds threshold %d", stats.PendingCount, cfg.OutboxMaxPending)
-				}
-				return nil
-			})
-
-			sagaOrchestrator = createOrchestrator(deps, kafkaProducer)
+			return err
 		}
+
+		kafkaProducer = producer
+		logger.WithField("brokers", brokers).Info("kafka producer initialized")
+
+		outboxWorker := outboxsvc.NewWorker(
+			deps.OutboxRepo,
+			kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicOrderEvents),
+			outboxsvc.WithDLQPublisher(kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicDeadLetterQueue)),
+			outboxsvc.WithLogger(logger.WithField("component", "outbox-worker")),
+			outboxsvc.WithPollInterval(cfg.OutboxPollInterval),
+			outboxsvc.WithBatchSize(cfg.OutboxBatchSize),
+			outboxsvc.WithMaxAttempts(cfg.OutboxMaxAttempts),
+			outboxsvc.WithRetryBaseDelay(cfg.OutboxRetryDelay),
+		)
+		workerCtx, workerCancel := context.WithCancel(ctx)
+		outboxWorkerCancel = workerCancel
+		outboxWorkerDone = make(chan struct{})
+		go func() {
+			defer close(outboxWorkerDone)
+			outboxWorker.Run(workerCtx)
+		}()
+
+		outboxChecker = healthcheck.NewSimpleChecker("outbox", func() error {
+			stats, err := deps.OutboxRepo.Stats()
+			if err != nil {
+				return err
+			}
+			if cfg.OutboxMaxPending > 0 && stats.PendingCount > cfg.OutboxMaxPending {
+				return fmt.Errorf("outbox backlog %d exceeds threshold %d", stats.PendingCount, cfg.OutboxMaxPending)
+			}
+			return nil
+		})
+
+		sagaOrchestrator = createOrchestrator(deps, kafkaProducer)
 	}
 
 	// Если Kafka не настроен, используем обычный orchestrator
@@ -177,17 +178,8 @@ func Run(ctx context.Context, cfg Config) error {
 
 	serviceLogger := logger.WithField("layer", "grpc")
 	orderService := grpcsvc.NewOrderService(deps.Repo, deps.TimelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
-	grpcMetrics := promgrpc.NewServerMetrics()
+	grpcMetrics := promgrpc.DefaultServerMetrics
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))
-	if err := prometheus.Register(grpcMetrics); err != nil {
-		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
-			if existing, ok2 := are.ExistingCollector.(*promgrpc.ServerMetrics); ok2 {
-				grpcMetrics = existing
-			}
-		} else {
-			logger.WithError(err).Warn("failed to register grpc metrics")
-		}
-	}
 
 	omsv1.RegisterOrderServiceServer(grpcServer, orderService)
 	grpcMetrics.InitializeMetrics(grpcServer)
@@ -450,6 +442,94 @@ func parseKafkaBrokers(raw string) []string {
 	}
 
 	return brokers
+}
+
+func initKafkaProducerWithRetry(
+	ctx context.Context,
+	brokers []string,
+	logger *log.Entry,
+	initTimeout time.Duration,
+	retryDelay time.Duration,
+) (*kafka.Producer, error) {
+	var producer *kafka.Producer
+	if err := retryWithDeadline(ctx, logger, "kafka producer initialization", initTimeout, retryDelay, func() error {
+		p, err := kafka.NewProducer(brokers)
+		if err != nil {
+			return err
+		}
+		producer = p
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("initialize kafka producer: %w", err)
+	}
+	return producer, nil
+}
+
+func retryWithDeadline(
+	ctx context.Context,
+	logger *log.Entry,
+	operation string,
+	timeout time.Duration,
+	retryDelay time.Duration,
+	fn func() error,
+) error {
+	if logger == nil {
+		logger = log.WithField("component", "app")
+	}
+	if timeout <= 0 {
+		timeout = kafkaInitTimeout
+	}
+	if retryDelay <= 0 {
+		retryDelay = kafkaInitRetryDelay
+	}
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+	var lastErr error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr == nil {
+				return err
+			}
+			return fmt.Errorf("%s aborted: %w", operation, err)
+		}
+
+		attempt++
+		err := fn()
+		if err == nil {
+			if attempt > 1 {
+				logger.WithFields(log.Fields{
+					"operation": operation,
+					"attempts":  attempt,
+				}).Info("operation succeeded after retries")
+			}
+			return nil
+		}
+		lastErr = err
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s failed after %d attempts: %w", operation, attempt, lastErr)
+		}
+
+		logger.WithError(lastErr).WithFields(log.Fields{
+			"operation": operation,
+			"attempt":   attempt,
+		}).Warn("operation failed, retrying")
+
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			if lastErr == nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("%s aborted: %w", operation, ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 func closeKafkaProducer(producer *kafka.Producer, logger *log.Entry) {

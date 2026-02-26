@@ -277,7 +277,12 @@ func findFreePort(t *testing.T) int {
 	if err != nil {
 		t.Fatalf("failed to find free port: %v", err)
 	}
-	defer listener.Close()
+	defer func(listener net.Listener) {
+		err := listener.Close()
+		if err != nil {
+			fmt.Printf("failed to close listener: %v", err)
+		}
+	}(listener)
 
 	return listener.Addr().(*net.TCPAddr).Port
 }

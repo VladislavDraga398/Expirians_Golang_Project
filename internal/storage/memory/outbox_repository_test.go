@@ -162,3 +162,43 @@ func TestOutboxRepository_PullPendingReclaimsStaleProcessing(t *testing.T) {
 		t.Fatalf("expected reclaimed id %s, got %s", saved.ID, reclaimed[0].ID)
 	}
 }
+
+func TestOutboxRepository_AllPending(t *testing.T) {
+	repo := NewOutboxRepository()
+
+	first, err := repo.Enqueue(domain.OutboxMessage{
+		AggregateType: "order",
+		AggregateID:   "order-all-pending-1",
+		EventType:     "OrderCreated",
+	})
+	if err != nil {
+		t.Fatalf("enqueue first failed: %v", err)
+	}
+	second, err := repo.Enqueue(domain.OutboxMessage{
+		AggregateType: "order",
+		AggregateID:   "order-all-pending-2",
+		EventType:     "OrderCreated",
+	})
+	if err != nil {
+		t.Fatalf("enqueue second failed: %v", err)
+	}
+
+	pulled, err := repo.PullPending(1)
+	if err != nil {
+		t.Fatalf("pull pending failed: %v", err)
+	}
+	if len(pulled) != 1 {
+		t.Fatalf("expected exactly one claimed record, got %d", len(pulled))
+	}
+	if pulled[0].ID != first.ID && pulled[0].ID != second.ID {
+		t.Fatalf("unexpected claimed id: %s", pulled[0].ID)
+	}
+
+	remaining := repo.AllPending()
+	if len(remaining) != 1 {
+		t.Fatalf("expected one pending record after claim, got %d", len(remaining))
+	}
+	if remaining[0].ID == pulled[0].ID {
+		t.Fatalf("claimed message must not stay pending: %+v", remaining[0])
+	}
+}
