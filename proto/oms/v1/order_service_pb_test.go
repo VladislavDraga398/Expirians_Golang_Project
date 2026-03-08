@@ -65,6 +65,24 @@ func TestCourierSlotStatusGeneratedHelpers(t *testing.T) {
 	_, _ = s.EnumDescriptor()
 }
 
+func TestCourierRatingTagGeneratedHelpers(t *testing.T) {
+	s := CourierRatingTag_COURIER_RATING_TAG_ON_TIME
+	if got := s.Enum(); got == nil || *got != s {
+		t.Fatalf("Enum() mismatch: got %v want %v", got, s)
+	}
+	if s.String() == "" {
+		t.Fatalf("String() must not be empty")
+	}
+	if s.Type() == nil {
+		t.Fatalf("Type() must not be nil")
+	}
+	if s.Descriptor() == nil {
+		t.Fatalf("Descriptor() must not be nil")
+	}
+	_ = s.Number()
+	_, _ = s.EnumDescriptor()
+}
+
 func TestGeneratedMessageHelpers(t *testing.T) {
 	messages := []any{
 		&Money{Currency: "USD", AmountMinor: 100},
@@ -129,6 +147,34 @@ func TestGeneratedMessageHelpers(t *testing.T) {
 		&CreateCourierSlotResponse{Slot: &CourierSlot{Id: "slot-1"}},
 		&ListCourierSlotsRequest{CourierId: "courier-1", FromUnix: 1, ToUnix: 2},
 		&ListCourierSlotsResponse{Slots: []*CourierSlot{{Id: "slot-1"}}},
+		&SubmitCourierRatingRequest{
+			RatingId:  "rating-1",
+			CourierId: "courier-1",
+			Score:     5,
+			Tags:      []CourierRatingTag{CourierRatingTag_COURIER_RATING_TAG_ON_TIME},
+			Comment:   "Great",
+		},
+		&SubmitCourierRatingResponse{
+			RatingId:  "rating-1",
+			CourierId: "courier-1",
+		},
+		&GetCourierRatingSummaryRequest{
+			CourierId: "courier-1",
+		},
+		&CourierRatingSummary{
+			CourierId:       "courier-1",
+			RatingsCount:    2,
+			AverageScore:    4.5,
+			LowRatingsCount: 0,
+			Score_5Count:    1,
+			Score_4Count:    1,
+			OnTimeCount:     1,
+			PoliteCount:     1,
+			LastRatingUnix:  100,
+		},
+		&GetCourierRatingSummaryResponse{
+			Summary: &CourierRatingSummary{CourierId: "courier-1"},
+		},
 	}
 
 	for _, msg := range messages {

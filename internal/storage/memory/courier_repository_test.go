@@ -247,3 +247,113 @@ func TestCourierRepository_Slots(t *testing.T) {
 		t.Fatalf("unexpected slots order: %+v", slots)
 	}
 }
+
+func TestCourierRepository_RatingsAndSummary(t *testing.T) {
+	repo := memory.NewCourierRepository()
+	now := time.Now().UTC().Round(time.Second)
+
+	courier := sampleCourier("courier-rating", "+79990000005", domain.VehicleTypeBike, now)
+	if err := repo.Create(courier); err != nil {
+		t.Fatalf("create courier: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-1",
+		CourierID: courier.ID,
+		Score:     5,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagOnTime,
+			domain.CourierRatingTagPolite,
+		},
+		Comment:   "Все отлично",
+		CreatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("submit rating-1: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-2",
+		CourierID: courier.ID,
+		Score:     2,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagDelayedDelivery,
+		},
+		Comment:   "Опоздал",
+		CreatedAt: now.Add(2 * time.Minute),
+	}); err != nil {
+		t.Fatalf("submit rating-2: %v", err)
+	}
+
+	summary, err := repo.GetRatingSummary(courier.ID)
+	if err != nil {
+		t.Fatalf("get rating summary: %v", err)
+	}
+	if summary.RatingsCount != 2 {
+		t.Fatalf("expected ratings_count=2, got %d", summary.RatingsCount)
+	}
+	if summary.AverageScore != 3.5 {
+		t.Fatalf("expected average_score=3.5, got %.2f", summary.AverageScore)
+	}
+	if summary.LowRatingsCount != 1 {
+		t.Fatalf("expected low_ratings_count=1, got %d", summary.LowRatingsCount)
+	}
+	if summary.Score5Count != 1 || summary.Score2Count != 1 {
+		t.Fatalf("unexpected score distribution: %+v", summary)
+	}
+	if summary.OnTimeCount != 1 || summary.PoliteCount != 1 || summary.DelayedCount != 1 {
+		t.Fatalf("unexpected tag counters: %+v", summary)
+	}
+	if summary.LastRatingAt.Unix() != now.Add(2*time.Minute).Unix() {
+		t.Fatalf("unexpected last_rating_at: got=%s want=%s", summary.LastRatingAt, now.Add(2*time.Minute))
+	}
+}
+
+func TestCourierRepository_RatingValidationBranches(t *testing.T) {
+	repo := memory.NewCourierRepository()
+	now := time.Now().UTC().Round(time.Second)
+
+	courier := sampleCourier("courier-rating-errors", "+79990000007", domain.VehicleTypeScooter, now)
+	if err := repo.Create(courier); err != nil {
+		t.Fatalf("create courier: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-bad-low",
+		CourierID: courier.ID,
+		Score:     1,
+	}); !errors.Is(err, domain.ErrCourierRatingReasonsRequired) {
+		t.Fatalf("expected ErrCourierRatingReasonsRequired, got %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-bad-dup",
+		CourierID: courier.ID,
+		Score:     4,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagPolite,
+			domain.CourierRatingTagPolite,
+		},
+	}); !errors.Is(err, domain.ErrCourierRatingTagDuplicate) {
+		t.Fatalf("expected ErrCourierRatingTagDuplicate, got %v", err)
+	}
+
+	valid := domain.CourierRating{
+		ID:        "rating-unique",
+		CourierID: courier.ID,
+		Score:     4,
+		Tags:      []domain.CourierRatingTag{domain.CourierRatingTagOnTime},
+	}
+	if err := repo.SubmitRating(valid); err != nil {
+		t.Fatalf("submit valid rating: %v", err)
+	}
+	if err := repo.SubmitRating(valid); !errors.Is(err, domain.ErrCourierRatingAlreadyExists) {
+		t.Fatalf("expected ErrCourierRatingAlreadyExists, got %v", err)
+	}
+
+	if _, err := repo.GetRatingSummary(""); !errors.Is(err, domain.ErrCourierIDRequired) {
+		t.Fatalf("expected ErrCourierIDRequired, got %v", err)
+	}
+	if _, err := repo.GetRatingSummary("missing"); !errors.Is(err, domain.ErrCourierNotFound) {
+		t.Fatalf("expected ErrCourierNotFound, got %v", err)
+	}
+}

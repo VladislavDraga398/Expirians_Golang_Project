@@ -116,8 +116,11 @@ func (z *CourierZone) ValidateInvariants() []error {
 	if strings.TrimSpace(z.CourierID) == "" {
 		errs = append(errs, ErrCourierIDRequired)
 	}
-	if strings.TrimSpace(z.ZoneID) == "" {
+	zoneID := NormalizeZoneID(z.ZoneID)
+	if zoneID == "" {
 		errs = append(errs, ErrCourierZoneRequired)
+	} else if !IsKnownMoscowZoneID(zoneID) {
+		errs = append(errs, ErrCourierZoneUnknown)
 	}
 
 	return errs
@@ -186,4 +189,133 @@ func (s *CourierSlot) ValidateInvariants() []error {
 	}
 
 	return errs
+}
+
+const (
+	// CourierRatingMinScore — минимально допустимая оценка курьера.
+	CourierRatingMinScore = 1
+	// CourierRatingMaxScore — максимально допустимая оценка курьера.
+	CourierRatingMaxScore = 5
+)
+
+// CourierRatingTag определяет тег обратной связи по доставке.
+type CourierRatingTag string
+
+const (
+	CourierRatingTagOnTime          CourierRatingTag = "on_time"
+	CourierRatingTagPolite          CourierRatingTag = "polite"
+	CourierRatingTagCarefulHandling CourierRatingTag = "careful_handling"
+	CourierRatingTagDelayedDelivery CourierRatingTag = "delayed_delivery"
+	CourierRatingTagRudeBehavior    CourierRatingTag = "rude_behavior"
+	CourierRatingTagDamagedOrder    CourierRatingTag = "damaged_order"
+	CourierRatingTagOtherIssue      CourierRatingTag = "other_issue"
+)
+
+// Valid проверяет, поддерживается ли тег рейтинга.
+func (t CourierRatingTag) Valid() bool {
+	switch t {
+	case CourierRatingTagOnTime,
+		CourierRatingTagPolite,
+		CourierRatingTagCarefulHandling,
+		CourierRatingTagDelayedDelivery,
+		CourierRatingTagRudeBehavior,
+		CourierRatingTagDamagedOrder,
+		CourierRatingTagOtherIssue:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsPositive возвращает true для позитивных тегов.
+func (t CourierRatingTag) IsPositive() bool {
+	switch t {
+	case CourierRatingTagOnTime, CourierRatingTagPolite, CourierRatingTagCarefulHandling:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsNegative возвращает true для негативных тегов.
+func (t CourierRatingTag) IsNegative() bool {
+	switch t {
+	case CourierRatingTagDelayedDelivery, CourierRatingTagRudeBehavior, CourierRatingTagDamagedOrder, CourierRatingTagOtherIssue:
+		return true
+	default:
+		return false
+	}
+}
+
+// CourierRating описывает оценку доставки конкретного курьера.
+type CourierRating struct {
+	ID        string
+	CourierID string
+	Score     int
+	Tags      []CourierRatingTag
+	Comment   string
+	CreatedAt time.Time
+}
+
+// ValidateInvariants проверяет корректность рейтинга курьера.
+func (r *CourierRating) ValidateInvariants() []error {
+	var errs []error
+
+	if strings.TrimSpace(r.ID) == "" {
+		errs = append(errs, ErrCourierRatingIDRequired)
+	}
+	if strings.TrimSpace(r.CourierID) == "" {
+		errs = append(errs, ErrCourierIDRequired)
+	}
+	if r.Score < CourierRatingMinScore || r.Score > CourierRatingMaxScore {
+		errs = append(errs, ErrCourierRatingScoreInvalid)
+	}
+
+	seen := make(map[CourierRatingTag]struct{}, len(r.Tags))
+	hasNegativeTag := false
+	for _, tag := range r.Tags {
+		if !tag.Valid() {
+			errs = append(errs, ErrCourierRatingTagInvalid)
+			continue
+		}
+		if _, exists := seen[tag]; exists {
+			errs = append(errs, ErrCourierRatingTagDuplicate)
+			continue
+		}
+		seen[tag] = struct{}{}
+
+		if tag.IsNegative() {
+			hasNegativeTag = true
+			if r.Score == CourierRatingMaxScore {
+				errs = append(errs, ErrCourierRatingPositiveTagsOnly)
+			}
+		}
+	}
+
+	if r.Score < 3 && !hasNegativeTag {
+		errs = append(errs, ErrCourierRatingReasonsRequired)
+	}
+
+	return errs
+}
+
+// CourierRatingSummary содержит агрегаты качества по курьеру.
+type CourierRatingSummary struct {
+	CourierID       string
+	RatingsCount    int64
+	AverageScore    float64
+	LowRatingsCount int64
+	Score1Count     int64
+	Score2Count     int64
+	Score3Count     int64
+	Score4Count     int64
+	Score5Count     int64
+	OnTimeCount     int64
+	PoliteCount     int64
+	CarefulCount    int64
+	DelayedCount    int64
+	RudeCount       int64
+	DamagedCount    int64
+	OtherIssueCount int64
+	LastRatingAt    time.Time
 }

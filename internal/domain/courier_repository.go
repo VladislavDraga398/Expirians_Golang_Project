@@ -22,4 +22,8 @@ type CourierRepository interface {
 	CreateSlot(slot CourierSlot) error
 	// ListSlots возвращает слоты курьера за указанный интервал.
 	ListSlots(courierID string, from, to time.Time) ([]CourierSlot, error)
+	// SubmitRating сохраняет оценку доставки по курьеру.
+	SubmitRating(rating CourierRating) error
+	// GetRatingSummary возвращает агрегированную сводку рейтинга по курьеру.
+	GetRatingSummary(courierID string) (CourierRatingSummary, error)
 }

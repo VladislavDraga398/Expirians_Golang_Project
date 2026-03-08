@@ -85,6 +85,11 @@ func TestCourierZoneValidateInvariants(t *testing.T) {
 	if errs := zone.ValidateInvariants(); len(errs) == 0 {
 		t.Fatal("expected validation errors for zone")
 	}
+
+	zone.ZoneID = "msk-cao-unknown"
+	if errs := zone.ValidateInvariants(); len(errs) == 0 {
+		t.Fatal("expected validation errors for unknown zone")
+	}
 }
 
 func TestCourierSlotValidateInvariants(t *testing.T) {
@@ -130,5 +135,62 @@ func TestCourierSlotStatusValid(t *testing.T) {
 
 	if domain.CourierSlotStatus("unknown").Valid() {
 		t.Fatal("expected unknown status to be invalid")
+	}
+}
+
+func TestCourierRatingValidateInvariants(t *testing.T) {
+	now := time.Now().UTC()
+
+	valid := domain.CourierRating{
+		ID:        "rating-1",
+		CourierID: "courier-1",
+		Score:     5,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagOnTime,
+			domain.CourierRatingTagPolite,
+		},
+		Comment:   "Отлично",
+		CreatedAt: now,
+	}
+	if errs := valid.ValidateInvariants(); len(errs) != 0 {
+		t.Fatalf("expected no validation errors, got %v", errs)
+	}
+
+	lowWithoutReasons := valid
+	lowWithoutReasons.ID = "rating-2"
+	lowWithoutReasons.Score = 2
+	lowWithoutReasons.Tags = nil
+	if errs := lowWithoutReasons.ValidateInvariants(); len(errs) == 0 {
+		t.Fatal("expected validation errors for low rating without reasons")
+	}
+
+	fiveWithNegative := valid
+	fiveWithNegative.ID = "rating-3"
+	fiveWithNegative.Tags = []domain.CourierRatingTag{
+		domain.CourierRatingTagOnTime,
+		domain.CourierRatingTagDelayedDelivery,
+	}
+	if errs := fiveWithNegative.ValidateInvariants(); len(errs) == 0 {
+		t.Fatal("expected validation errors for 5-star rating with negative tags")
+	}
+}
+
+func TestCourierRatingTagHelpers(t *testing.T) {
+	if !domain.CourierRatingTagOnTime.Valid() || !domain.CourierRatingTagOnTime.IsPositive() {
+		t.Fatal("expected on_time tag to be valid and positive")
+	}
+	if domain.CourierRatingTagOnTime.IsNegative() {
+		t.Fatal("expected on_time tag to be non-negative")
+	}
+
+	if !domain.CourierRatingTagDelayedDelivery.Valid() || !domain.CourierRatingTagDelayedDelivery.IsNegative() {
+		t.Fatal("expected delayed_delivery tag to be valid and negative")
+	}
+	if domain.CourierRatingTagDelayedDelivery.IsPositive() {
+		t.Fatal("expected delayed_delivery tag to be non-positive")
+	}
+
+	if domain.CourierRatingTag("unknown").Valid() {
+		t.Fatal("expected unknown rating tag to be invalid")
 	}
 }

@@ -73,6 +73,8 @@ var (
 	ErrCourierPhoneAlreadyExists = errors.New("courier phone already exists")
 	// ErrCourierZoneRequired — не указан идентификатор зоны курьера.
 	ErrCourierZoneRequired = errors.New("courier zone is required")
+	// ErrCourierZoneUnknown — зона не найдена в справочнике Москвы.
+	ErrCourierZoneUnknown = errors.New("courier zone is unknown")
 	// ErrCourierZoneLimitExceeded — превышено допустимое количество зон для типа транспорта.
 	ErrCourierZoneLimitExceeded = errors.New("courier zone limit exceeded")
 	// ErrCourierZonesRequired — курьеру должна быть назначена хотя бы одна зона.
@@ -95,6 +97,20 @@ var (
 	ErrCourierSlotStatusInvalid = errors.New("courier slot status is invalid")
 	// ErrCourierSlotConflict — слот пересекается с существующим или дублируется.
 	ErrCourierSlotConflict = errors.New("courier slot conflict")
+	// ErrCourierRatingIDRequired — отсутствует идентификатор оценки.
+	ErrCourierRatingIDRequired = errors.New("courier rating id is required")
+	// ErrCourierRatingScoreInvalid — оценка курьера вне допустимого диапазона.
+	ErrCourierRatingScoreInvalid = errors.New("courier rating score is invalid")
+	// ErrCourierRatingTagInvalid — передан неподдерживаемый тег оценки.
+	ErrCourierRatingTagInvalid = errors.New("courier rating tag is invalid")
+	// ErrCourierRatingTagDuplicate — в оценке передан повторяющийся тег.
+	ErrCourierRatingTagDuplicate = errors.New("courier rating tag duplicate")
+	// ErrCourierRatingReasonsRequired — для низкой оценки не указаны причины.
+	ErrCourierRatingReasonsRequired = errors.New("courier rating reasons are required")
+	// ErrCourierRatingPositiveTagsOnly — для 5 звёзд разрешены только позитивные теги.
+	ErrCourierRatingPositiveTagsOnly = errors.New("courier rating positive tags only")
+	// ErrCourierRatingAlreadyExists — оценка с таким идентификатором уже существует.
+	ErrCourierRatingAlreadyExists = errors.New("courier rating already exists")
 )
 
 // IsVersionConflict проверяет, является ли ошибка конфликтом версий.

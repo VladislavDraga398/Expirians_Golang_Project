@@ -476,3 +476,131 @@ func TestCourierRepository_PostgresUniqueAndListSlotFilterBranches(t *testing.T)
 		t.Fatalf("unexpected to-filtered slots: %+v", toFiltered)
 	}
 }
+
+func TestCourierRepository_PostgresSubmitRatingAndSummary(t *testing.T) {
+	store := openPostgresStoreForIntegrationTest(t)
+	repo := NewCourierRepository(store)
+
+	now := time.Now().UTC().Round(time.Second)
+	courier := domain.Courier{
+		ID:          "courier-rating",
+		Phone:       "+79990000999",
+		FirstName:   "Rating",
+		LastName:    "Courier",
+		VehicleType: domain.VehicleTypeBike,
+		IsActive:    true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := repo.Create(courier); err != nil {
+		t.Fatalf("create courier: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-1",
+		CourierID: courier.ID,
+		Score:     5,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagOnTime,
+			domain.CourierRatingTagPolite,
+		},
+		Comment:   "Отлично",
+		CreatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("submit rating-1: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-2",
+		CourierID: courier.ID,
+		Score:     2,
+		Tags: []domain.CourierRatingTag{
+			domain.CourierRatingTagDelayedDelivery,
+		},
+		Comment:   "Опоздание",
+		CreatedAt: now.Add(2 * time.Minute),
+	}); err != nil {
+		t.Fatalf("submit rating-2: %v", err)
+	}
+
+	summary, err := repo.GetRatingSummary(courier.ID)
+	if err != nil {
+		t.Fatalf("get rating summary: %v", err)
+	}
+	if summary.RatingsCount != 2 {
+		t.Fatalf("expected ratings_count=2, got %d", summary.RatingsCount)
+	}
+	if summary.AverageScore != 3.5 {
+		t.Fatalf("expected average_score=3.5, got %.2f", summary.AverageScore)
+	}
+	if summary.LowRatingsCount != 1 {
+		t.Fatalf("expected low_ratings_count=1, got %d", summary.LowRatingsCount)
+	}
+	if summary.Score5Count != 1 || summary.Score2Count != 1 {
+		t.Fatalf("unexpected score distribution: %+v", summary)
+	}
+	if summary.OnTimeCount != 1 || summary.PoliteCount != 1 || summary.DelayedCount != 1 {
+		t.Fatalf("unexpected tag counters: %+v", summary)
+	}
+	if summary.LastRatingAt.Unix() != now.Add(2*time.Minute).Unix() {
+		t.Fatalf("unexpected last_rating_at: got=%s want=%s", summary.LastRatingAt, now.Add(2*time.Minute))
+	}
+}
+
+func TestCourierRepository_PostgresRatingValidationAndErrorBranches(t *testing.T) {
+	store := openPostgresStoreForIntegrationTest(t)
+	repo := NewCourierRepository(store)
+	now := time.Now().UTC().Round(time.Second)
+
+	courier := domain.Courier{
+		ID:          "courier-rating-errors",
+		Phone:       "+79990000888",
+		FirstName:   "Error",
+		LastName:    "Courier",
+		VehicleType: domain.VehicleTypeScooter,
+		IsActive:    true,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := repo.Create(courier); err != nil {
+		t.Fatalf("create courier: %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-low-no-reasons",
+		CourierID: courier.ID,
+		Score:     1,
+	}); !errors.Is(err, domain.ErrCourierRatingReasonsRequired) {
+		t.Fatalf("expected ErrCourierRatingReasonsRequired, got %v", err)
+	}
+
+	valid := domain.CourierRating{
+		ID:        "rating-unique",
+		CourierID: courier.ID,
+		Score:     4,
+		Tags:      []domain.CourierRatingTag{domain.CourierRatingTagOnTime},
+		CreatedAt: now.Add(time.Minute),
+	}
+	if err := repo.SubmitRating(valid); err != nil {
+		t.Fatalf("submit valid rating: %v", err)
+	}
+	if err := repo.SubmitRating(valid); !errors.Is(err, domain.ErrCourierRatingAlreadyExists) {
+		t.Fatalf("expected ErrCourierRatingAlreadyExists, got %v", err)
+	}
+
+	if err := repo.SubmitRating(domain.CourierRating{
+		ID:        "rating-missing-courier",
+		CourierID: "missing",
+		Score:     5,
+		Tags:      []domain.CourierRatingTag{domain.CourierRatingTagOnTime},
+	}); !errors.Is(err, domain.ErrCourierNotFound) {
+		t.Fatalf("expected ErrCourierNotFound for missing courier rating, got %v", err)
+	}
+
+	if _, err := repo.GetRatingSummary(""); !errors.Is(err, domain.ErrCourierIDRequired) {
+		t.Fatalf("expected ErrCourierIDRequired, got %v", err)
+	}
+	if _, err := repo.GetRatingSummary("missing"); !errors.Is(err, domain.ErrCourierNotFound) {
+		t.Fatalf("expected ErrCourierNotFound, got %v", err)
+	}
+}

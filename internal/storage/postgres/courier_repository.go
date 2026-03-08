@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -193,9 +194,12 @@ func (r *courierRepository) Save(courier domain.Courier) error {
 }
 
 func (r *courierRepository) ListByZone(zoneID string, limit int) ([]domain.Courier, error) {
-	zoneID = strings.TrimSpace(zoneID)
+	zoneID = domain.NormalizeZoneID(zoneID)
 	if zoneID == "" {
 		return nil, domain.ErrCourierZoneRequired
+	}
+	if !domain.IsKnownMoscowZoneID(zoneID) {
+		return nil, domain.ErrCourierZoneUnknown
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
@@ -507,6 +511,118 @@ func (r *courierRepository) ListSlots(courierID string, from, to time.Time) ([]d
 	return result, nil
 }
 
+func (r *courierRepository) SubmitRating(rating domain.CourierRating) error {
+	if err := firstDomainValidationErr(rating.ValidateInvariants()); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	if rating.CreatedAt.IsZero() {
+		rating.CreatedAt = time.Now().UTC()
+	}
+
+	rawTags := make([]string, len(rating.Tags))
+	for i, tag := range rating.Tags {
+		rawTags[i] = string(tag)
+	}
+	tagsPayload, err := json.Marshal(rawTags)
+	if err != nil {
+		return fmt.Errorf("marshal courier rating tags: %w", err)
+	}
+
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO courier_ratings (
+			id, courier_id, score, tags, comment, created_at
+		) VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+	`,
+		strings.TrimSpace(rating.ID),
+		strings.TrimSpace(rating.CourierID),
+		rating.Score,
+		string(tagsPayload),
+		strings.TrimSpace(rating.Comment),
+		rating.CreatedAt,
+	)
+	if err != nil {
+		switch {
+		case isUniqueViolation(err):
+			return domain.ErrCourierRatingAlreadyExists
+		case isForeignKeyViolation(err):
+			return domain.ErrCourierNotFound
+		default:
+			return fmt.Errorf("insert courier rating: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (r *courierRepository) GetRatingSummary(courierID string) (domain.CourierRatingSummary, error) {
+	courierID = strings.TrimSpace(courierID)
+	if courierID == "" {
+		return domain.CourierRatingSummary{}, domain.ErrCourierIDRequired
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	if err := r.ensureCourierExists(ctx, courierID); err != nil {
+		return domain.CourierRatingSummary{}, err
+	}
+
+	summary := domain.CourierRatingSummary{
+		CourierID: courierID,
+	}
+	var lastRating sql.NullTime
+	err := r.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(*)::bigint AS ratings_count,
+			COALESCE(AVG(score::double precision), 0) AS average_score,
+			COUNT(*) FILTER (WHERE score < 3)::bigint AS low_ratings_count,
+			COUNT(*) FILTER (WHERE score = 1)::bigint AS score_1_count,
+			COUNT(*) FILTER (WHERE score = 2)::bigint AS score_2_count,
+			COUNT(*) FILTER (WHERE score = 3)::bigint AS score_3_count,
+			COUNT(*) FILTER (WHERE score = 4)::bigint AS score_4_count,
+			COUNT(*) FILTER (WHERE score = 5)::bigint AS score_5_count,
+			COUNT(*) FILTER (WHERE tags ? 'on_time')::bigint AS on_time_count,
+			COUNT(*) FILTER (WHERE tags ? 'polite')::bigint AS polite_count,
+			COUNT(*) FILTER (WHERE tags ? 'careful_handling')::bigint AS careful_count,
+			COUNT(*) FILTER (WHERE tags ? 'delayed_delivery')::bigint AS delayed_count,
+			COUNT(*) FILTER (WHERE tags ? 'rude_behavior')::bigint AS rude_count,
+			COUNT(*) FILTER (WHERE tags ? 'damaged_order')::bigint AS damaged_count,
+			COUNT(*) FILTER (WHERE tags ? 'other_issue')::bigint AS other_issue_count,
+			MAX(created_at) AS last_rating_at
+		FROM courier_ratings
+		WHERE courier_id = $1
+	`, courierID).Scan(
+		&summary.RatingsCount,
+		&summary.AverageScore,
+		&summary.LowRatingsCount,
+		&summary.Score1Count,
+		&summary.Score2Count,
+		&summary.Score3Count,
+		&summary.Score4Count,
+		&summary.Score5Count,
+		&summary.OnTimeCount,
+		&summary.PoliteCount,
+		&summary.CarefulCount,
+		&summary.DelayedCount,
+		&summary.RudeCount,
+		&summary.DamagedCount,
+		&summary.OtherIssueCount,
+		&lastRating,
+	)
+	if err != nil {
+		return domain.CourierRatingSummary{}, fmt.Errorf("get courier rating summary: %w", err)
+	}
+	if lastRating.Valid {
+		summary.LastRatingAt = lastRating.Time.UTC()
+	}
+
+	return summary, nil
+}
+
 func firstDomainValidationErr(errs []error) error {
 	if len(errs) == 0 {
 		return nil
@@ -521,7 +637,7 @@ func prepareZones(courierID string, zones []domain.CourierZone) ([]domain.Courie
 	primaryCount := 0
 	for _, zone := range zones {
 		zone.CourierID = courierID
-		zone.ZoneID = strings.TrimSpace(zone.ZoneID)
+		zone.ZoneID = domain.NormalizeZoneID(zone.ZoneID)
 		if err := firstDomainValidationErr(zone.ValidateInvariants()); err != nil {
 			return nil, err
 		}
@@ -637,6 +753,14 @@ func mapCourierUniqueErr(err error) error {
 	}
 
 	return domain.ErrCourierAlreadyExists
+}
+
+func isForeignKeyViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23503"
+	}
+	return false
 }
 
 var _ domain.CourierRepository = (*courierRepository)(nil)

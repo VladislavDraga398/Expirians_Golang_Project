@@ -304,6 +304,26 @@ func (s *grpcTestCourierService) ListCourierSlots(_ context.Context, req *ListCo
 	}, nil
 }
 
+func (s *grpcTestCourierService) SubmitCourierRating(_ context.Context, req *SubmitCourierRatingRequest) (*SubmitCourierRatingResponse, error) {
+	return &SubmitCourierRatingResponse{
+		RatingId:  req.GetRatingId(),
+		CourierId: req.GetCourierId(),
+	}, nil
+}
+
+func (s *grpcTestCourierService) GetCourierRatingSummary(_ context.Context, req *GetCourierRatingSummaryRequest) (*GetCourierRatingSummaryResponse, error) {
+	return &GetCourierRatingSummaryResponse{
+		Summary: &CourierRatingSummary{
+			CourierId:       req.GetCourierId(),
+			RatingsCount:    2,
+			AverageScore:    4.5,
+			LowRatingsCount: 0,
+			Score_4Count:    1,
+			Score_5Count:    1,
+		},
+	}, nil
+}
+
 func TestCourierServiceClientMethods(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		methods := map[string]int{}
@@ -324,6 +344,11 @@ func TestCourierServiceClientMethods(t *testing.T) {
 					out.Slot = &CourierSlot{Id: "slot-1", Status: CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED}
 				case *ListCourierSlotsResponse:
 					out.Slots = []*CourierSlot{{Id: "slot-1", Status: CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED}}
+				case *SubmitCourierRatingResponse:
+					out.RatingId = "rating-1"
+					out.CourierId = "courier-1"
+				case *GetCourierRatingSummaryResponse:
+					out.Summary = &CourierRatingSummary{CourierId: "courier-1", RatingsCount: 2}
 				default:
 					t.Fatalf("unexpected reply type: %T", out)
 				}
@@ -351,6 +376,12 @@ func TestCourierServiceClientMethods(t *testing.T) {
 		if _, err := client.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); err != nil {
 			t.Fatalf("ListCourierSlots failed: %v", err)
 		}
+		if _, err := client.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{}); err != nil {
+			t.Fatalf("SubmitCourierRating failed: %v", err)
+		}
+		if _, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{}); err != nil {
+			t.Fatalf("GetCourierRatingSummary failed: %v", err)
+		}
 
 		for _, method := range []string{
 			CourierService_RegisterCourier_FullMethodName,
@@ -359,6 +390,8 @@ func TestCourierServiceClientMethods(t *testing.T) {
 			CourierService_ReplaceCourierZones_FullMethodName,
 			CourierService_CreateCourierSlot_FullMethodName,
 			CourierService_ListCourierSlots_FullMethodName,
+			CourierService_SubmitCourierRating_FullMethodName,
+			CourierService_GetCourierRatingSummary_FullMethodName,
 		} {
 			if methods[method] != 1 {
 				t.Fatalf("expected method %s called exactly once, got %d", method, methods[method])
@@ -385,6 +418,14 @@ func TestCourierServiceClientMethods(t *testing.T) {
 			"ReplaceCourierZones": func() error { _, err := client.ReplaceCourierZones(ctx, &ReplaceCourierZonesRequest{}); return err },
 			"CreateCourierSlot":   func() error { _, err := client.CreateCourierSlot(ctx, &CreateCourierSlotRequest{}); return err },
 			"ListCourierSlots":    func() error { _, err := client.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); return err },
+			"SubmitCourierRating": func() error {
+				_, err := client.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{})
+				return err
+			},
+			"GetCourierRatingSummary": func() error {
+				_, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
+				return err
+			},
 		} {
 			if err := call(); status.Code(err) != codes.Internal {
 				t.Fatalf("%s expected Internal error, got %v", name, err)
@@ -407,6 +448,14 @@ func TestUnimplementedCourierServiceServer(t *testing.T) {
 		},
 		"CreateCourierSlot": func() error { _, err := srv.CreateCourierSlot(ctx, &CreateCourierSlotRequest{}); return err },
 		"ListCourierSlots":  func() error { _, err := srv.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); return err },
+		"SubmitCourierRating": func() error {
+			_, err := srv.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{})
+			return err
+		},
+		"GetCourierRatingSummary": func() error {
+			_, err := srv.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
+			return err
+		},
 	} {
 		if err := call(); status.Code(err) != codes.Unimplemented {
 			t.Fatalf("%s expected Unimplemented error, got %v", name, err)
@@ -427,6 +476,8 @@ func TestCourierGeneratedHandlers(t *testing.T) {
 		{name: "ReplaceCourierZones", method: CourierService_ReplaceCourierZones_FullMethodName, call: _CourierService_ReplaceCourierZones_Handler},
 		{name: "CreateCourierSlot", method: CourierService_CreateCourierSlot_FullMethodName, call: _CourierService_CreateCourierSlot_Handler},
 		{name: "ListCourierSlots", method: CourierService_ListCourierSlots_FullMethodName, call: _CourierService_ListCourierSlots_Handler},
+		{name: "SubmitCourierRating", method: CourierService_SubmitCourierRating_FullMethodName, call: _CourierService_SubmitCourierRating_Handler},
+		{name: "GetCourierRatingSummary", method: CourierService_GetCourierRatingSummary_FullMethodName, call: _CourierService_GetCourierRatingSummary_Handler},
 	}
 
 	for _, tc := range cases {
@@ -471,8 +522,8 @@ func TestRegisterCourierAndServiceDescriptor(t *testing.T) {
 	if got, want := CourierService_ServiceDesc.ServiceName, "oms.v1.CourierService"; got != want {
 		t.Fatalf("unexpected service name: got %s want %s", got, want)
 	}
-	if len(CourierService_ServiceDesc.Methods) != 6 {
-		t.Fatalf("expected 6 method descriptors, got %d", len(CourierService_ServiceDesc.Methods))
+	if len(CourierService_ServiceDesc.Methods) != 8 {
+		t.Fatalf("expected 8 method descriptors, got %d", len(CourierService_ServiceDesc.Methods))
 	}
 	if CourierService_ServiceDesc.Metadata == "" {
 		t.Fatalf("metadata should not be empty")
@@ -505,6 +556,13 @@ func decodeCourierFor(name string) func(interface{}) error {
 			req.CourierId = "courier-1"
 			req.FromUnix = 1
 			req.ToUnix = 2
+		case *SubmitCourierRatingRequest:
+			req.RatingId = "rating-1"
+			req.CourierId = "courier-1"
+			req.Score = 5
+			req.Tags = []CourierRatingTag{CourierRatingTag_COURIER_RATING_TAG_ON_TIME}
+		case *GetCourierRatingSummaryRequest:
+			req.CourierId = "courier-1"
 		default:
 			return status.Errorf(codes.Internal, "unexpected request type for %s: %T", name, req)
 		}

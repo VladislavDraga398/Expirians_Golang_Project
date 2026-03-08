@@ -124,6 +124,9 @@ func (s *CourierService) ListCouriersByZone(_ context.Context, req *omsv1.ListCo
 	if s.repo == nil {
 		return nil, status.Error(codes.Internal, "courier repository is not configured")
 	}
+	if !domain.IsKnownMoscowZoneID(req.ZoneId) {
+		return nil, status.Error(codes.InvalidArgument, domain.ErrCourierZoneUnknown.Error())
+	}
 
 	limit := int(req.Limit)
 	if limit < 0 {
@@ -266,6 +269,66 @@ func (s *CourierService) ListCourierSlots(_ context.Context, req *omsv1.ListCour
 	return &omsv1.ListCourierSlotsResponse{Slots: result}, nil
 }
 
+// SubmitCourierRating сохраняет оценку качества доставки по курьеру.
+func (s *CourierService) SubmitCourierRating(_ context.Context, req *omsv1.SubmitCourierRatingRequest) (*omsv1.SubmitCourierRatingResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if s.repo == nil {
+		return nil, status.Error(codes.Internal, "courier repository is not configured")
+	}
+
+	courierID := strings.TrimSpace(req.CourierId)
+	if courierID == "" {
+		return nil, status.Error(codes.InvalidArgument, "courier_id is required")
+	}
+
+	ratingID := strings.TrimSpace(req.RatingId)
+	if ratingID == "" {
+		ratingID = uuid.NewString()
+	}
+
+	tags, err := toDomainCourierRatingTags(req.Tags)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	rating := domain.CourierRating{
+		ID:        ratingID,
+		CourierID: courierID,
+		Score:     int(req.Score),
+		Tags:      tags,
+		Comment:   strings.TrimSpace(req.Comment),
+	}
+	if err := s.repo.SubmitRating(rating); err != nil {
+		return nil, s.mapCourierErr(err, "failed to submit courier rating")
+	}
+
+	return &omsv1.SubmitCourierRatingResponse{
+		RatingId:  ratingID,
+		CourierId: courierID,
+	}, nil
+}
+
+// GetCourierRatingSummary возвращает агрегированную сводку рейтингов курьера.
+func (s *CourierService) GetCourierRatingSummary(_ context.Context, req *omsv1.GetCourierRatingSummaryRequest) (*omsv1.GetCourierRatingSummaryResponse, error) {
+	if req == nil || strings.TrimSpace(req.CourierId) == "" {
+		return nil, status.Error(codes.InvalidArgument, "courier_id is required")
+	}
+	if s.repo == nil {
+		return nil, status.Error(codes.Internal, "courier repository is not configured")
+	}
+
+	summary, err := s.repo.GetRatingSummary(req.CourierId)
+	if err != nil {
+		return nil, s.mapCourierErr(err, "failed to get courier rating summary")
+	}
+
+	return &omsv1.GetCourierRatingSummaryResponse{
+		Summary: toProtoCourierRatingSummary(summary),
+	}, nil
+}
+
 func (s *CourierService) mapCourierErr(err error, internalMessage string) error {
 	switch {
 	case err == nil:
@@ -273,6 +336,8 @@ func (s *CourierService) mapCourierErr(err error, internalMessage string) error 
 	case errors.Is(err, domain.ErrCourierNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrCourierAlreadyExists), errors.Is(err, domain.ErrCourierPhoneAlreadyExists):
+		return status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, domain.ErrCourierRatingAlreadyExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrCourierZoneCapacityExceeded):
 		return status.Error(codes.ResourceExhausted, err.Error())
@@ -287,13 +352,20 @@ func (s *CourierService) mapCourierErr(err error, internalMessage string) error 
 		errors.Is(err, domain.ErrCourierLastNameRequired),
 		errors.Is(err, domain.ErrCourierVehicleTypeInvalid),
 		errors.Is(err, domain.ErrCourierZoneRequired),
+		errors.Is(err, domain.ErrCourierZoneUnknown),
 		errors.Is(err, domain.ErrCourierZonesRequired),
 		errors.Is(err, domain.ErrCourierZoneDuplicate),
 		errors.Is(err, domain.ErrCourierSlotIDRequired),
 		errors.Is(err, domain.ErrCourierSlotDurationInvalid),
 		errors.Is(err, domain.ErrCourierSlotDurationMismatch),
 		errors.Is(err, domain.ErrCourierSlotRangeInvalid),
-		errors.Is(err, domain.ErrCourierSlotStatusInvalid):
+		errors.Is(err, domain.ErrCourierSlotStatusInvalid),
+		errors.Is(err, domain.ErrCourierRatingIDRequired),
+		errors.Is(err, domain.ErrCourierRatingScoreInvalid),
+		errors.Is(err, domain.ErrCourierRatingTagInvalid),
+		errors.Is(err, domain.ErrCourierRatingTagDuplicate),
+		errors.Is(err, domain.ErrCourierRatingReasonsRequired),
+		errors.Is(err, domain.ErrCourierRatingPositiveTagsOnly):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		s.logger.WithError(err).Error(internalMessage)
@@ -334,6 +406,10 @@ func toDomainCourierZones(inputs []*omsv1.CourierZoneInput, courierID string, ve
 		if zoneID == "" {
 			return nil, domain.ErrCourierZoneRequired
 		}
+		zoneID = domain.NormalizeZoneID(zoneID)
+		if !domain.IsKnownMoscowZoneID(zoneID) {
+			return nil, domain.ErrCourierZoneUnknown
+		}
 		if _, exists := seen[zoneID]; exists {
 			return nil, domain.ErrCourierZoneDuplicate
 		}
@@ -358,6 +434,31 @@ func toDomainCourierZones(inputs []*omsv1.CourierZoneInput, courierID string, ve
 	}
 
 	return zones, nil
+}
+
+func toDomainCourierRatingTags(values []omsv1.CourierRatingTag) ([]domain.CourierRatingTag, error) {
+	result := make([]domain.CourierRatingTag, 0, len(values))
+	for _, value := range values {
+		switch value {
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_ON_TIME:
+			result = append(result, domain.CourierRatingTagOnTime)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_POLITE:
+			result = append(result, domain.CourierRatingTagPolite)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_CAREFUL_HANDLING:
+			result = append(result, domain.CourierRatingTagCarefulHandling)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_DELAYED_DELIVERY:
+			result = append(result, domain.CourierRatingTagDelayedDelivery)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_RUDE_BEHAVIOR:
+			result = append(result, domain.CourierRatingTagRudeBehavior)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_DAMAGED_ORDER:
+			result = append(result, domain.CourierRatingTagDamagedOrder)
+		case omsv1.CourierRatingTag_COURIER_RATING_TAG_OTHER_ISSUE:
+			result = append(result, domain.CourierRatingTagOtherIssue)
+		default:
+			return nil, domain.ErrCourierRatingTagInvalid
+		}
+	}
+	return result, nil
 }
 
 func toProtoCourier(courier domain.Courier, zones []domain.CourierZone) *omsv1.Courier {
@@ -430,6 +531,33 @@ func toProtoCourierSlotStatus(value domain.CourierSlotStatus) omsv1.CourierSlotS
 		return omsv1.CourierSlotStatus_COURIER_SLOT_STATUS_CANCELED
 	default:
 		return omsv1.CourierSlotStatus_COURIER_SLOT_STATUS_UNSPECIFIED
+	}
+}
+
+func toProtoCourierRatingSummary(summary domain.CourierRatingSummary) *omsv1.CourierRatingSummary {
+	var lastRatingUnix int64
+	if !summary.LastRatingAt.IsZero() {
+		lastRatingUnix = summary.LastRatingAt.Unix()
+	}
+
+	return &omsv1.CourierRatingSummary{
+		CourierId:       summary.CourierID,
+		RatingsCount:    summary.RatingsCount,
+		AverageScore:    summary.AverageScore,
+		LowRatingsCount: summary.LowRatingsCount,
+		Score_1Count:    summary.Score1Count,
+		Score_2Count:    summary.Score2Count,
+		Score_3Count:    summary.Score3Count,
+		Score_4Count:    summary.Score4Count,
+		Score_5Count:    summary.Score5Count,
+		LastRatingUnix:  lastRatingUnix,
+		OnTimeCount:     summary.OnTimeCount,
+		PoliteCount:     summary.PoliteCount,
+		CarefulCount:    summary.CarefulCount,
+		DelayedCount:    summary.DelayedCount,
+		RudeCount:       summary.RudeCount,
+		DamagedCount:    summary.DamagedCount,
+		OtherIssueCount: summary.OtherIssueCount,
 	}
 }
 

@@ -139,3 +139,104 @@ func TestCourierService_CreateAndListCourierSlots(t *testing.T) {
 		t.Fatalf("unexpected slot status: %s", listResp.GetSlots()[0].GetStatus().String())
 	}
 }
+
+func TestCourierService_SubmitRatingAndGetSummary(t *testing.T) {
+	service := NewCourierService(memory.NewCourierRepository(), nil)
+
+	registerResp, err := service.RegisterCourier(context.Background(), &omsv1.RegisterCourierRequest{
+		CourierId:   "courier-rating",
+		Phone:       "+79990000004",
+		FirstName:   "Alex",
+		LastName:    "Rated",
+		VehicleType: omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE,
+		Zones: []*omsv1.CourierZoneInput{
+			{ZoneId: "msk-cao-arbat", IsPrimary: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register courier: %v", err)
+	}
+
+	_, err = service.SubmitCourierRating(context.Background(), &omsv1.SubmitCourierRatingRequest{
+		CourierId: registerResp.GetCourier().GetId(),
+		Score:     5,
+		Tags: []omsv1.CourierRatingTag{
+			omsv1.CourierRatingTag_COURIER_RATING_TAG_ON_TIME,
+			omsv1.CourierRatingTag_COURIER_RATING_TAG_POLITE,
+		},
+		Comment: "Отлично",
+	})
+	if err != nil {
+		t.Fatalf("submit rating-1: %v", err)
+	}
+
+	_, err = service.SubmitCourierRating(context.Background(), &omsv1.SubmitCourierRatingRequest{
+		CourierId: registerResp.GetCourier().GetId(),
+		Score:     2,
+		Tags: []omsv1.CourierRatingTag{
+			omsv1.CourierRatingTag_COURIER_RATING_TAG_DELAYED_DELIVERY,
+		},
+		Comment: "Опоздал",
+	})
+	if err != nil {
+		t.Fatalf("submit rating-2: %v", err)
+	}
+
+	summaryResp, err := service.GetCourierRatingSummary(context.Background(), &omsv1.GetCourierRatingSummaryRequest{
+		CourierId: registerResp.GetCourier().GetId(),
+	})
+	if err != nil {
+		t.Fatalf("get rating summary: %v", err)
+	}
+
+	summary := summaryResp.GetSummary()
+	if summary.GetRatingsCount() != 2 {
+		t.Fatalf("expected ratings_count=2, got %d", summary.GetRatingsCount())
+	}
+	if summary.GetAverageScore() != 3.5 {
+		t.Fatalf("expected average_score=3.5, got %.2f", summary.GetAverageScore())
+	}
+	if summary.GetLowRatingsCount() != 1 {
+		t.Fatalf("expected low_ratings_count=1, got %d", summary.GetLowRatingsCount())
+	}
+	if summary.GetOnTimeCount() != 1 || summary.GetPoliteCount() != 1 || summary.GetDelayedCount() != 1 {
+		t.Fatalf("unexpected tag counters: %+v", summary)
+	}
+}
+
+func TestCourierService_SubmitRatingValidation(t *testing.T) {
+	service := NewCourierService(memory.NewCourierRepository(), nil)
+
+	_, err := service.SubmitCourierRating(context.Background(), &omsv1.SubmitCourierRatingRequest{
+		CourierId: "missing",
+		Score:     5,
+		Tags: []omsv1.CourierRatingTag{
+			omsv1.CourierRatingTag_COURIER_RATING_TAG_ON_TIME,
+		},
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("expected NotFound for missing courier, got %v (err=%v)", status.Code(err), err)
+	}
+
+	registerResp, err := service.RegisterCourier(context.Background(), &omsv1.RegisterCourierRequest{
+		CourierId:   "courier-rating-errors",
+		Phone:       "+79990000005",
+		FirstName:   "Ivan",
+		LastName:    "Err",
+		VehicleType: omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE,
+		Zones: []*omsv1.CourierZoneInput{
+			{ZoneId: "msk-cao-arbat", IsPrimary: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register courier: %v", err)
+	}
+
+	_, err = service.SubmitCourierRating(context.Background(), &omsv1.SubmitCourierRatingRequest{
+		CourierId: registerResp.GetCourier().GetId(),
+		Score:     1,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument for low rating without reasons, got %v (err=%v)", status.Code(err), err)
+	}
+}

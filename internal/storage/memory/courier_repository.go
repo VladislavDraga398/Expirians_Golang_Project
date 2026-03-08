@@ -12,19 +12,21 @@ import (
 type courierRepositoryInMemory struct {
 	mu sync.RWMutex
 
-	couriers       map[string]domain.Courier
-	courierByPhone map[string]string
-	zonesByCourier map[string]map[string]domain.CourierZone
-	slotsByCourier map[string]map[string]domain.CourierSlot
+	couriers         map[string]domain.Courier
+	courierByPhone   map[string]string
+	zonesByCourier   map[string]map[string]domain.CourierZone
+	slotsByCourier   map[string]map[string]domain.CourierSlot
+	ratingsByCourier map[string]map[string]domain.CourierRating
 }
 
 // NewCourierRepository создаёт in-memory реализацию CourierRepository.
 func NewCourierRepository() domain.CourierRepository {
 	return &courierRepositoryInMemory{
-		couriers:       make(map[string]domain.Courier),
-		courierByPhone: make(map[string]string),
-		zonesByCourier: make(map[string]map[string]domain.CourierZone),
-		slotsByCourier: make(map[string]map[string]domain.CourierSlot),
+		couriers:         make(map[string]domain.Courier),
+		courierByPhone:   make(map[string]string),
+		zonesByCourier:   make(map[string]map[string]domain.CourierZone),
+		slotsByCourier:   make(map[string]map[string]domain.CourierSlot),
+		ratingsByCourier: make(map[string]map[string]domain.CourierRating),
 	}
 }
 
@@ -142,9 +144,12 @@ func (r *courierRepositoryInMemory) Save(courier domain.Courier) error {
 }
 
 func (r *courierRepositoryInMemory) ListByZone(zoneID string, limit int) ([]domain.Courier, error) {
-	zoneID = strings.TrimSpace(zoneID)
+	zoneID = domain.NormalizeZoneID(zoneID)
 	if zoneID == "" {
 		return nil, domain.ErrCourierZoneRequired
+	}
+	if !domain.IsKnownMoscowZoneID(zoneID) {
+		return nil, domain.ErrCourierZoneUnknown
 	}
 
 	r.mu.RLock()
@@ -205,7 +210,7 @@ func (r *courierRepositoryInMemory) ReplaceZones(courierID string, zones []domai
 		if err := firstValidationErr(zone.ValidateInvariants()); err != nil {
 			return err
 		}
-		zone.ZoneID = strings.TrimSpace(zone.ZoneID)
+		zone.ZoneID = domain.NormalizeZoneID(zone.ZoneID)
 		if _, dup := seen[zone.ZoneID]; dup {
 			return domain.ErrCourierZoneDuplicate
 		}
@@ -347,6 +352,101 @@ func (r *courierRepositoryInMemory) ListSlots(courierID string, from, to time.Ti
 	return result, nil
 }
 
+func (r *courierRepositoryInMemory) SubmitRating(rating domain.CourierRating) error {
+	if err := firstValidationErr(rating.ValidateInvariants()); err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.couriers[rating.CourierID]; !exists {
+		return domain.ErrCourierNotFound
+	}
+
+	courierRatings, ok := r.ratingsByCourier[rating.CourierID]
+	if !ok {
+		courierRatings = make(map[string]domain.CourierRating)
+		r.ratingsByCourier[rating.CourierID] = courierRatings
+	}
+	if _, exists := courierRatings[rating.ID]; exists {
+		return domain.ErrCourierRatingAlreadyExists
+	}
+
+	if rating.CreatedAt.IsZero() {
+		rating.CreatedAt = time.Now().UTC()
+	}
+	courierRatings[rating.ID] = cloneCourierRating(rating)
+	return nil
+}
+
+func (r *courierRepositoryInMemory) GetRatingSummary(courierID string) (domain.CourierRatingSummary, error) {
+	courierID = strings.TrimSpace(courierID)
+	if courierID == "" {
+		return domain.CourierRatingSummary{}, domain.ErrCourierIDRequired
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if _, exists := r.couriers[courierID]; !exists {
+		return domain.CourierRatingSummary{}, domain.ErrCourierNotFound
+	}
+
+	summary := domain.CourierRatingSummary{
+		CourierID: courierID,
+	}
+	courierRatings := r.ratingsByCourier[courierID]
+	if len(courierRatings) == 0 {
+		return summary, nil
+	}
+
+	var totalScore int64
+	for _, rating := range courierRatings {
+		summary.RatingsCount++
+		totalScore += int64(rating.Score)
+		if rating.Score < 3 {
+			summary.LowRatingsCount++
+		}
+		switch rating.Score {
+		case 1:
+			summary.Score1Count++
+		case 2:
+			summary.Score2Count++
+		case 3:
+			summary.Score3Count++
+		case 4:
+			summary.Score4Count++
+		case 5:
+			summary.Score5Count++
+		}
+		if summary.LastRatingAt.IsZero() || rating.CreatedAt.After(summary.LastRatingAt) {
+			summary.LastRatingAt = rating.CreatedAt
+		}
+		for _, tag := range rating.Tags {
+			switch tag {
+			case domain.CourierRatingTagOnTime:
+				summary.OnTimeCount++
+			case domain.CourierRatingTagPolite:
+				summary.PoliteCount++
+			case domain.CourierRatingTagCarefulHandling:
+				summary.CarefulCount++
+			case domain.CourierRatingTagDelayedDelivery:
+				summary.DelayedCount++
+			case domain.CourierRatingTagRudeBehavior:
+				summary.RudeCount++
+			case domain.CourierRatingTagDamagedOrder:
+				summary.DamagedCount++
+			case domain.CourierRatingTagOtherIssue:
+				summary.OtherIssueCount++
+			}
+		}
+	}
+
+	summary.AverageScore = float64(totalScore) / float64(summary.RatingsCount)
+	return summary, nil
+}
+
 func firstValidationErr(errs []error) error {
 	if len(errs) == 0 {
 		return nil
@@ -398,6 +498,13 @@ func cloneCourierZone(src domain.CourierZone) domain.CourierZone {
 }
 
 func cloneCourierSlot(src domain.CourierSlot) domain.CourierSlot {
+	return src
+}
+
+func cloneCourierRating(src domain.CourierRating) domain.CourierRating {
+	clonedTags := make([]domain.CourierRatingTag, len(src.Tags))
+	copy(clonedTags, src.Tags)
+	src.Tags = clonedTags
 	return src
 }
 
