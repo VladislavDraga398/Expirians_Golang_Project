@@ -86,6 +86,14 @@ make run
 | `make vet` | Статический анализ (go vet) |
 | `make lint` | Полный линтинг |
 
+### CI gates
+
+| Команда | Описание |
+|---------|----------|
+| `make ci-test-gate` | CI-эквивалент `Tests`: `-race` + coverage gate `>=80%` |
+| `make ci-security-gate` | Локальный security gate (`gosec`) |
+| `make ci-local` | Локальный пред-пуш прогон ключевых CI gates |
+
 ### Docker
 
 | Команда | Описание |
@@ -128,17 +136,8 @@ make run
 ### Перед коммитом
 
 ```bash
-# 1. Проверить race conditions
-make test-race
-
-# 2. Проверить coverage
-make cover
-
-# 3. Линтинг
-make lint
-
-# 4. Форматирование
-make fmt
+# Полный локальный прогон ключевых CI gates
+make ci-local
 ```
 
 ### При разработке
@@ -157,8 +156,11 @@ make test-failfast
 ### CI/CD
 
 ```bash
-# Полная проверка
-make test-race && make cover && make lint
+# Точный локальный эквивалент тестового gate CI
+make ci-test-gate
+
+# Полный локальный пред-пуш набор
+make ci-local
 ```
 
 ---

@@ -28,6 +28,7 @@ LDFLAGS ?= -s -w \
         test test-v test-race test-race-v test-unit test-integration test-saga test-kafka test-grpc test-short test-count test-failfast \
         cover cover-race bench \
         fmt vet lint lint-install staticcheck \
+        ci-test-gate ci-security-gate ci-local \
         docker-build docker-run \
         compose-up compose-down compose-build-up \
         k8s-validate k8s-apply k8s-delete k8s-status k8s-logs k8s-describe \
@@ -166,6 +167,24 @@ cover-race: ## Отчёт покрытия с race detector
 
 bench: ## Запустить бенчмарки производительности
 	$(GO) test -bench=. -benchmem ./...
+
+##@ CI gates
+
+ci-test-gate: ## CI-эквивалент test job: race + coverage gate (>=80%)
+	./scripts/ci/test_gate_with_postgres.sh
+
+ci-security-gate: ## Локальный security gate (gosec)
+	./scripts/ci/security_gate.sh
+
+ci-local: ## Локальный пред-пуш прогон ключевых CI gates
+	./scripts/ci/repo_hygiene_gate.sh
+	gofmt -l . | awk 'NF{print; bad=1} END{if(bad){exit 1}}'
+	$(GO) vet ./...
+	golangci-lint run --timeout=5m
+	./scripts/ci/test_gate_with_postgres.sh
+	./scripts/ci/migration_gate.sh
+	$(GO) build -o /tmp/order-service-ci-local ./cmd/order-service
+	./scripts/ci/security_gate.sh
 
 # ========================================================================
 # ЛИНТИНГ И СТАТИЧЕСКИЙ АНАЛИЗ

@@ -521,7 +521,7 @@ func (s *OrderService) cacheIdempotencyFailure(key string, runErr error) {
 	}
 
 	payload, err := json.Marshal(idempotencyErrorPayload{
-		Code:    int32(code), //nolint:gosec // codes.Code is a bounded enum value.
+		Code:    grpcCodeToInt32(code),
 		Message: st.Message(),
 	})
 	if err != nil {
@@ -561,6 +561,47 @@ func decodeIdempotencyFailure(record domain.IdempotencyRecord) error {
 
 func grpcCodeFromInt32(value int32) (codes.Code, bool) {
 	return grpcCodeFromInt64(int64(value))
+}
+
+func grpcCodeToInt32(code codes.Code) int32 {
+	switch code {
+	case codes.OK:
+		return 0
+	case codes.Canceled:
+		return 1
+	case codes.Unknown:
+		return 2
+	case codes.InvalidArgument:
+		return 3
+	case codes.DeadlineExceeded:
+		return 4
+	case codes.NotFound:
+		return 5
+	case codes.AlreadyExists:
+		return 6
+	case codes.PermissionDenied:
+		return 7
+	case codes.ResourceExhausted:
+		return 8
+	case codes.FailedPrecondition:
+		return 9
+	case codes.Aborted:
+		return 10
+	case codes.OutOfRange:
+		return 11
+	case codes.Unimplemented:
+		return 12
+	case codes.Internal:
+		return 13
+	case codes.Unavailable:
+		return 14
+	case codes.DataLoss:
+		return 15
+	case codes.Unauthenticated:
+		return 16
+	default:
+		return 13
+	}
 }
 
 func grpcCodeFromInt(value int) (codes.Code, bool) {

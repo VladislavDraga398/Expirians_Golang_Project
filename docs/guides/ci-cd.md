@@ -2,7 +2,7 @@
 
 Автоматизированный pipeline для проверки, тестирования и merge-gate проекта OMS.
 
-**Версия:** v2.3 | **Обновлено:** 2026-02-23
+**Версия:** v2.4 | **Обновлено:** 2026-03-08
 
 ---
 
@@ -10,6 +10,7 @@
 - Тестовый стенд не хранится в отдельной ветке: он поднимается как временное окружение в GitHub Actions.
 - `premerge_stand` запускается на каждом PR, но с разными профилями по целевой ветке.
 - Merge разрешён только после зелёных `lint`, `test`, `build`, `premerge_stand`.
+- `test` job включает обязательный coverage gate `>= 80%`.
 - SQL-модель дополнительно защищена обязательным `migration_check`.
 
 ---
@@ -41,7 +42,7 @@
 
 ### `test`
 - `go test ./... -race -count=1 -v`
-- coverage report
+- coverage report + coverage gate (`COVERAGE_MIN_PERCENT=80.0`)
 
 ### `migration_check`
 - поднимает `postgres` в CI
@@ -115,12 +116,8 @@
 ## Локальный прогон перед PR
 
 ```bash
-# Базовые проверки
-make fmt
-make lint
-make test-race
-OMS_POSTGRES_DSN='postgres://oms:oms@localhost:55432/oms?sslmode=disable' ./scripts/ci/migration_gate.sh
-make build
+# Полный локальный CI-эквивалент ключевых gate'ов
+make ci-local
 
 # Локальный стенд (включая Prometheus)
 docker compose up -d --build oms zookeeper kafka prometheus
@@ -137,6 +134,12 @@ MODE=create-pay-cancel CANCEL_RATE=20 MAX_ERROR_RATE=0.020 MAX_P95_MS=500 MAX_AV
 
 # Cleanup
 docker compose down -v
+```
+
+Если нужен только тестовый gate из CI (race + coverage >= 80%), используйте:
+
+```bash
+make ci-test-gate
 ```
 
 ---
