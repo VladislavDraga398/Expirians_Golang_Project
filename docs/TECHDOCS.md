@@ -2,9 +2,9 @@
 
 Единая точка входа во всю техническую документацию проекта.
 
-**Версия:** v3.0  
-**Обновлено:** 2026-02-23  
-**Статус:** Sprint 2 Active
+**Версия:** v3.1  
+**Обновлено:** 2026-03-08  
+**Статус:** Sprint 3 Active
 
 ## Start Here
 
@@ -16,7 +16,7 @@
 
 - Текущая программа: переход OMS в delivery-продукт **BoostMarket**.
 - Sprint 1 (`Core Hardening`) завершён.
-- Активный этап: Sprint 2 (`Delivery Domain Foundation`).
+- Активный этап: Sprint 3 (`Identity and Slot Policy`).
 - Ключевой источник истины по плану: [Roadmap](roadmap.md).
 
 ## Architecture

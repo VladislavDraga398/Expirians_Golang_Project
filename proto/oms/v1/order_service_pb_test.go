@@ -120,6 +120,13 @@ func TestGeneratedMessageHelpers(t *testing.T) {
 			DurationHours: 4,
 			Status:        CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED,
 		},
+		&CourierVehicleCapability{
+			VehicleType:      CourierVehicleType_COURIER_VEHICLE_TYPE_CAR,
+			MaxWeightGrams:   25000,
+			MaxVolumeCm3:     250000,
+			MaxOrdersPerTrip: 10,
+			UpdatedAtUnix:    1,
+		},
 		&RegisterCourierRequest{
 			CourierId:   "courier-1",
 			Phone:       "+79990000001",
@@ -147,6 +154,14 @@ func TestGeneratedMessageHelpers(t *testing.T) {
 		&CreateCourierSlotResponse{Slot: &CourierSlot{Id: "slot-1"}},
 		&ListCourierSlotsRequest{CourierId: "courier-1", FromUnix: 1, ToUnix: 2},
 		&ListCourierSlotsResponse{Slots: []*CourierSlot{{Id: "slot-1"}}},
+		&GetCourierVehicleCapabilityRequest{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR},
+		&GetCourierVehicleCapabilityResponse{
+			Capability: &CourierVehicleCapability{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000},
+		},
+		&ListCourierVehicleCapabilitiesRequest{},
+		&ListCourierVehicleCapabilitiesResponse{
+			Capabilities: []*CourierVehicleCapability{{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE, MaxWeightGrams: 10000}},
+		},
 		&SubmitCourierRatingRequest{
 			RatingId:  "rating-1",
 			CourierId: "courier-1",

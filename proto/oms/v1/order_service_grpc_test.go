@@ -304,6 +304,28 @@ func (s *grpcTestCourierService) ListCourierSlots(_ context.Context, req *ListCo
 	}, nil
 }
 
+func (s *grpcTestCourierService) GetCourierVehicleCapability(_ context.Context, req *GetCourierVehicleCapabilityRequest) (*GetCourierVehicleCapabilityResponse, error) {
+	return &GetCourierVehicleCapabilityResponse{
+		Capability: &CourierVehicleCapability{
+			VehicleType:      req.GetVehicleType(),
+			MaxWeightGrams:   25000,
+			MaxVolumeCm3:     250000,
+			MaxOrdersPerTrip: 10,
+			UpdatedAtUnix:    1,
+		},
+	}, nil
+}
+
+func (s *grpcTestCourierService) ListCourierVehicleCapabilities(_ context.Context, _ *ListCourierVehicleCapabilitiesRequest) (*ListCourierVehicleCapabilitiesResponse, error) {
+	return &ListCourierVehicleCapabilitiesResponse{
+		Capabilities: []*CourierVehicleCapability{
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_SCOOTER, MaxWeightGrams: 5000, MaxVolumeCm3: 35000, MaxOrdersPerTrip: 2, UpdatedAtUnix: 1},
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE, MaxWeightGrams: 10000, MaxVolumeCm3: 65000, MaxOrdersPerTrip: 3, UpdatedAtUnix: 1},
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000, MaxVolumeCm3: 250000, MaxOrdersPerTrip: 10, UpdatedAtUnix: 1},
+		},
+	}, nil
+}
+
 func (s *grpcTestCourierService) SubmitCourierRating(_ context.Context, req *SubmitCourierRatingRequest) (*SubmitCourierRatingResponse, error) {
 	return &SubmitCourierRatingResponse{
 		RatingId:  req.GetRatingId(),
@@ -349,6 +371,10 @@ func TestCourierServiceClientMethods(t *testing.T) {
 					out.CourierId = "courier-1"
 				case *GetCourierRatingSummaryResponse:
 					out.Summary = &CourierRatingSummary{CourierId: "courier-1", RatingsCount: 2}
+				case *GetCourierVehicleCapabilityResponse:
+					out.Capability = &CourierVehicleCapability{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000}
+				case *ListCourierVehicleCapabilitiesResponse:
+					out.Capabilities = []*CourierVehicleCapability{{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000}}
 				default:
 					t.Fatalf("unexpected reply type: %T", out)
 				}
@@ -382,6 +408,12 @@ func TestCourierServiceClientMethods(t *testing.T) {
 		if _, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{}); err != nil {
 			t.Fatalf("GetCourierRatingSummary failed: %v", err)
 		}
+		if _, err := client.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{}); err != nil {
+			t.Fatalf("GetCourierVehicleCapability failed: %v", err)
+		}
+		if _, err := client.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{}); err != nil {
+			t.Fatalf("ListCourierVehicleCapabilities failed: %v", err)
+		}
 
 		for _, method := range []string{
 			CourierService_RegisterCourier_FullMethodName,
@@ -392,6 +424,8 @@ func TestCourierServiceClientMethods(t *testing.T) {
 			CourierService_ListCourierSlots_FullMethodName,
 			CourierService_SubmitCourierRating_FullMethodName,
 			CourierService_GetCourierRatingSummary_FullMethodName,
+			CourierService_GetCourierVehicleCapability_FullMethodName,
+			CourierService_ListCourierVehicleCapabilities_FullMethodName,
 		} {
 			if methods[method] != 1 {
 				t.Fatalf("expected method %s called exactly once, got %d", method, methods[method])
@@ -426,6 +460,14 @@ func TestCourierServiceClientMethods(t *testing.T) {
 				_, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
 				return err
 			},
+			"GetCourierVehicleCapability": func() error {
+				_, err := client.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{})
+				return err
+			},
+			"ListCourierVehicleCapabilities": func() error {
+				_, err := client.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{})
+				return err
+			},
 		} {
 			if err := call(); status.Code(err) != codes.Internal {
 				t.Fatalf("%s expected Internal error, got %v", name, err)
@@ -456,6 +498,14 @@ func TestUnimplementedCourierServiceServer(t *testing.T) {
 			_, err := srv.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
 			return err
 		},
+		"GetCourierVehicleCapability": func() error {
+			_, err := srv.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{})
+			return err
+		},
+		"ListCourierVehicleCapabilities": func() error {
+			_, err := srv.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{})
+			return err
+		},
 	} {
 		if err := call(); status.Code(err) != codes.Unimplemented {
 			t.Fatalf("%s expected Unimplemented error, got %v", name, err)
@@ -478,6 +528,8 @@ func TestCourierGeneratedHandlers(t *testing.T) {
 		{name: "ListCourierSlots", method: CourierService_ListCourierSlots_FullMethodName, call: _CourierService_ListCourierSlots_Handler},
 		{name: "SubmitCourierRating", method: CourierService_SubmitCourierRating_FullMethodName, call: _CourierService_SubmitCourierRating_Handler},
 		{name: "GetCourierRatingSummary", method: CourierService_GetCourierRatingSummary_FullMethodName, call: _CourierService_GetCourierRatingSummary_Handler},
+		{name: "GetCourierVehicleCapability", method: CourierService_GetCourierVehicleCapability_FullMethodName, call: _CourierService_GetCourierVehicleCapability_Handler},
+		{name: "ListCourierVehicleCapabilities", method: CourierService_ListCourierVehicleCapabilities_FullMethodName, call: _CourierService_ListCourierVehicleCapabilities_Handler},
 	}
 
 	for _, tc := range cases {
@@ -522,8 +574,8 @@ func TestRegisterCourierAndServiceDescriptor(t *testing.T) {
 	if got, want := CourierService_ServiceDesc.ServiceName, "oms.v1.CourierService"; got != want {
 		t.Fatalf("unexpected service name: got %s want %s", got, want)
 	}
-	if len(CourierService_ServiceDesc.Methods) != 8 {
-		t.Fatalf("expected 8 method descriptors, got %d", len(CourierService_ServiceDesc.Methods))
+	if len(CourierService_ServiceDesc.Methods) != 10 {
+		t.Fatalf("expected 10 method descriptors, got %d", len(CourierService_ServiceDesc.Methods))
 	}
 	if CourierService_ServiceDesc.Metadata == "" {
 		t.Fatalf("metadata should not be empty")
@@ -563,6 +615,10 @@ func decodeCourierFor(name string) func(interface{}) error {
 			req.Tags = []CourierRatingTag{CourierRatingTag_COURIER_RATING_TAG_ON_TIME}
 		case *GetCourierRatingSummaryRequest:
 			req.CourierId = "courier-1"
+		case *GetCourierVehicleCapabilityRequest:
+			req.VehicleType = CourierVehicleType_COURIER_VEHICLE_TYPE_CAR
+		case *ListCourierVehicleCapabilitiesRequest:
+			// no-op
 		default:
 			return status.Errorf(codes.Internal, "unexpected request type for %s: %T", name, req)
 		}

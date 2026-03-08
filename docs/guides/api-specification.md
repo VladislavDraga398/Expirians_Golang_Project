@@ -2,18 +2,19 @@
 
 > Спецификация gRPC API для OMS
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
+**Версия:** v2.3 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
 ## TL;DR
-- Публичный `OrderService` (gRPC) — основной runtime-контракт.
+- Публичные gRPC-контракты runtime: `OrderService` и `CourierService`.
 - Для mutating RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`) `idempotency-key` обязателен.
+- Для mutating RPC `CourierService` `idempotency-key` пока не требуется.
 - Ошибки: gRPC codes + details; `AlreadyExists` при конфликте ключа идемпотентности.
 - REST-gateway маппинг описан в proto, но в текущем runtime gateway не поднят.
 
 ## Назначение
-Публичный gRPC-контракт (`OrderService`) и правила обработки ошибок/идемпотентности.
+Публичные gRPC-контракты (`OrderService`, `CourierService`) и правила обработки ошибок/идемпотентности.
 
 ## Версионирование и пакет
 - Версия API: v1
@@ -42,6 +43,34 @@
   - `PayOrder(PayOrderRequest) returns (PayOrderResponse)`
   - `CancelOrder(CancelOrderRequest) returns (CancelOrderResponse)`
   - `RefundOrder(RefundOrderRequest) returns (RefundOrderResponse)`
+
+## CourierService (публичный)
+- Методы
+  - `RegisterCourier(RegisterCourierRequest) returns (RegisterCourierResponse)`
+  - `GetCourier(GetCourierRequest) returns (GetCourierResponse)`
+  - `ListCouriersByZone(ListCouriersByZoneRequest) returns (ListCouriersByZoneResponse)`
+  - `ReplaceCourierZones(ReplaceCourierZonesRequest) returns (ReplaceCourierZonesResponse)`
+  - `CreateCourierSlot(CreateCourierSlotRequest) returns (CreateCourierSlotResponse)`
+  - `ListCourierSlots(ListCourierSlotsRequest) returns (ListCourierSlotsResponse)`
+  - `GetCourierVehicleCapability(GetCourierVehicleCapabilityRequest) returns (GetCourierVehicleCapabilityResponse)`
+  - `ListCourierVehicleCapabilities(ListCourierVehicleCapabilitiesRequest) returns (ListCourierVehicleCapabilitiesResponse)`
+  - `SubmitCourierRating(SubmitCourierRatingRequest) returns (SubmitCourierRatingResponse)`
+  - `GetCourierRatingSummary(GetCourierRatingSummaryRequest) returns (GetCourierRatingSummaryResponse)`
+
+## CourierService — ключевые доменные правила runtime
+- Регистрация курьера:
+  - телефон обязателен и уникален;
+  - для `scooter|bike` разрешена одна зона;
+  - для `car` допускаются несколько зон;
+  - должен быть ровно один primary zone (если не задан, проставляется первой зоне).
+- Слоты:
+  - поддерживаемые длительности `4|8|12` часов;
+  - ночной слот `20:00-08:00` разрешён только для `car`;
+  - конфликтующие слоты одного курьера отклоняются.
+- Рейтинг:
+  - `score` в диапазоне `1..5`;
+  - при `score < 3` обязательно передать минимум один негативный reason-tag;
+  - при `score = 5` разрешены только позитивные теги.
 
 ## Сообщения (фрагмент)
 ```proto
@@ -87,6 +116,16 @@ message Order {
   - POST `/v1/orders/{order_id}/pay` → `PayOrder`
   - POST `/v1/orders/{order_id}/cancel` → `CancelOrder`
   - POST `/v1/orders/{order_id}/refund` → `RefundOrder`
+  - POST `/v1/couriers` → `RegisterCourier`
+  - GET `/v1/couriers/{courier_id}` → `GetCourier`
+  - GET `/v1/zones/{zone_id}/couriers` → `ListCouriersByZone`
+  - PUT `/v1/couriers/{courier_id}/zones` → `ReplaceCourierZones`
+  - POST `/v1/couriers/{courier_id}/slots` → `CreateCourierSlot`
+  - GET `/v1/couriers/{courier_id}/slots` → `ListCourierSlots`
+  - GET `/v1/courier-vehicle-capabilities/{vehicle_type}` → `GetCourierVehicleCapability`
+  - GET `/v1/courier-vehicle-capabilities` → `ListCourierVehicleCapabilities`
+  - POST `/v1/couriers/{courier_id}/ratings` → `SubmitCourierRating`
+  - GET `/v1/couriers/{courier_id}/ratings/summary` → `GetCourierRatingSummary`
 
 ## Поведение идемпотентности
 - Runtime-поведение: один и тот же ключ + тот же payload → повторно возвращается сохранённый ответ.

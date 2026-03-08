@@ -2,7 +2,7 @@
 
 > Актуальная модель данных OMS/BoostMarket на текущем runtime
 
-**Версия:** v2.3 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
+**Версия:** v2.4 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
@@ -10,7 +10,8 @@
 - Основные таблицы заказа: `orders`, `order_items`, `timeline_events`, `outbox_messages`, `idempotency_keys`.
 - Денежные суммы: minor units (`BIGINT`).
 - Outbox runtime использует статусы `pending|processing|sent|failed` и поле `attempt_count`.
-- Sprint 2 добавил delivery foundation: `couriers`, `courier_zones`, `courier_slots`, `courier_vehicle_capabilities`.
+- Delivery-модель расширена: `couriers`, `courier_zones`, `courier_slots`, `courier_vehicle_capabilities`, `courier_ratings`.
+- `CourierService` уже выведен в runtime (registration/zones/slots/capabilities/ratings).
 
 ## Основные сущности (ядро OMS)
 
@@ -67,7 +68,7 @@
 - `idx_idempotency_keys_ttl_at (ttl_at)`
 - `idx_idempotency_keys_status (status)`
 
-## Delivery foundation (Sprint 2)
+## Delivery foundation (Sprint 2 + early Sprint 5)
 
 ### `couriers`
 - `id` (PK)
@@ -111,6 +112,18 @@
 - `max_orders_per_trip`
 - `updated_at`
 
+### `courier_ratings`
+- `id` (PK)
+- `courier_id` (FK -> `couriers.id`, `ON DELETE CASCADE`)
+- `score` (`1..5`)
+- `tags` (JSONB array)
+- `comment`
+- `created_at`
+
+Индексы:
+- `idx_courier_ratings_courier_created (courier_id, created_at DESC)`
+- `idx_courier_ratings_courier_score (courier_id, score)`
+
 ## Статусы заказа
 - `pending`
 - `reserved`
@@ -119,8 +132,9 @@
 - `canceled`
 - `refunded`
 
-## Текущее ограничение runtime
-- Delivery-таблицы и репозитории есть, но публичный courier gRPC API ещё не выведен в runtime.
+## Текущее состояние runtime
+- Публичный `CourierService` включён в runtime.
+- Реализованы: регистрация курьеров, управление зонами, слоты, vehicle capabilities, рейтинг и summary.
 
 ## Связанные документы
 - `docs/architecture/overview.md`

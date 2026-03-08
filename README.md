@@ -9,9 +9,9 @@
 
 ## Статус проекта
 
-- **Версия:** v3.0
-- **Статус:** Sprint 2 Active (Delivery Domain Foundation)
-- **Последнее обновление:** 2026-02-23
+- **Версия:** v3.1
+- **Статус:** Sprint 3 Active (Identity and Slot Policy)
+- **Последнее обновление:** 2026-03-08
 
 ## Ключевые возможности
 
@@ -271,8 +271,9 @@ git config core.hooksPath .githooks
 
 Текущий программный статус:
 - Sprint 1 (`Core Hardening`) завершён: стабилизировано runtime-ядро OMS, усилены outbox/idempotency/CI.
-- Sprint 2 (`Delivery Domain Foundation`) в работе: курьеры, зоны Москвы, транспорт, слоты и ограничения ёмкости.
-- Дальше по плану: рейтинг курьеров, dispatch-алгоритм, динамическое ценообразование, внешние geo/weather/traffic API.
+- Sprint 2 (`Delivery Domain Foundation`) завершён: `CourierService` в runtime (курьеры, зоны, слоты, vehicle capabilities).
+- Sprint 3 (`Identity and Slot Policy`) активен: next-step OTP, fair-allocation слотов; night-slot rule `20:00-08:00` для `car` уже реализован.
+- Sprint 5 частично реализован заранее: MVP рейтинга курьеров (`SubmitCourierRating`, `GetCourierRatingSummary`).
 
 Детали: [docs/roadmap.md](docs/roadmap.md)
 

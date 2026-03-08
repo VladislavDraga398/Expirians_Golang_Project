@@ -2,7 +2,7 @@
 
 Запустите OMS за **5 минут**!
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
+**Версия:** v2.3 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
@@ -110,7 +110,7 @@ curl http://localhost:9090/healthz
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-02-23T...",
+  "timestamp": "2026-03-08T...",
   "version": "dev",
   "uptime_seconds": 5
 }
@@ -162,6 +162,18 @@ open http://localhost:3000
 # (по умолчанию: admin / admin)
 # Dashboard: OMS → OMS Saga Overview
 ```
+
+---
+
+## Быстрый smoke-check CourierService
+
+```bash
+grpcurl -plaintext \
+  -d '{}' \
+  localhost:50051 oms.v1.CourierService/ListCourierVehicleCapabilities
+```
+
+Если сервис поднят корректно, вернётся список capabilities для `scooter|bike|car`.
 
 ---
 

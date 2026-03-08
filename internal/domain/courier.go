@@ -10,6 +10,7 @@ const (
 	MaxCouriersPerZoneDefault = 100
 	minPhoneDigits            = 11
 	maxPhoneDigits            = 15
+	moscowUTCOffsetSeconds    = 3 * 60 * 60
 )
 
 // VehicleType определяет транспорт курьера.
@@ -34,6 +35,77 @@ func (v VehicleType) Valid() bool {
 // AllowsMultipleZones показывает, может ли курьер работать в нескольких зонах.
 func (v VehicleType) AllowsMultipleZones() bool {
 	return v == VehicleTypeCar
+}
+
+// CourierVehicleCapability описывает грузовую способность типа транспорта курьера.
+type CourierVehicleCapability struct {
+	VehicleType      VehicleType
+	MaxWeightGrams   int
+	MaxVolumeCM3     int
+	MaxOrdersPerTrip int
+	UpdatedAt        time.Time
+}
+
+// ValidateInvariants проверяет корректность capability-профиля транспорта.
+func (c *CourierVehicleCapability) ValidateInvariants() []error {
+	var errs []error
+
+	if !c.VehicleType.Valid() {
+		errs = append(errs, ErrCourierVehicleTypeInvalid)
+	}
+	if c.MaxWeightGrams <= 0 || c.MaxVolumeCM3 <= 0 || c.MaxOrdersPerTrip <= 0 {
+		errs = append(errs, ErrCourierVehicleCapabilityInvalid)
+	}
+
+	return errs
+}
+
+// DefaultCourierVehicleCapabilities возвращает базовые лимиты по типам транспорта.
+func DefaultCourierVehicleCapabilities() []CourierVehicleCapability {
+	return []CourierVehicleCapability{
+		{
+			VehicleType:      VehicleTypeScooter,
+			MaxWeightGrams:   5000,
+			MaxVolumeCM3:     35000,
+			MaxOrdersPerTrip: 2,
+		},
+		{
+			VehicleType:      VehicleTypeBike,
+			MaxWeightGrams:   10000,
+			MaxVolumeCM3:     65000,
+			MaxOrdersPerTrip: 3,
+		},
+		{
+			VehicleType:      VehicleTypeCar,
+			MaxWeightGrams:   25000,
+			MaxVolumeCM3:     250000,
+			MaxOrdersPerTrip: 10,
+		},
+	}
+}
+
+// IsNightShiftSlot возвращает true, если слот соответствует окну 20:00-08:00 по Москве.
+func IsNightShiftSlot(slotStart, slotEnd time.Time) bool {
+	if slotStart.IsZero() || slotEnd.IsZero() {
+		return false
+	}
+
+	msk := time.FixedZone("Europe/Moscow", moscowUTCOffsetSeconds)
+	startMSK := slotStart.In(msk)
+	endMSK := slotEnd.In(msk)
+
+	if endMSK.Sub(startMSK) != 12*time.Hour {
+		return false
+	}
+
+	return startMSK.Hour() == 20 &&
+		startMSK.Minute() == 0 &&
+		startMSK.Second() == 0 &&
+		startMSK.Nanosecond() == 0 &&
+		endMSK.Hour() == 8 &&
+		endMSK.Minute() == 0 &&
+		endMSK.Second() == 0 &&
+		endMSK.Nanosecond() == 0
 }
 
 // Courier описывает профиль курьера в delivery-домене.

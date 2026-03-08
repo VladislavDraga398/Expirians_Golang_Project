@@ -382,8 +382,12 @@ func (r *courierRepository) CreateSlot(slot domain.CourierSlot) error {
 		}
 	}()
 
-	if _, err := r.getCourierTx(ctx, tx, slot.CourierID); err != nil {
+	courier, err := r.getCourierTx(ctx, tx, slot.CourierID)
+	if err != nil {
 		return err
+	}
+	if domain.IsNightShiftSlot(slot.SlotStart, slot.SlotEnd) && courier.VehicleType != domain.VehicleTypeCar {
+		return domain.ErrCourierNightSlotCarOnly
 	}
 
 	var overlapExists bool
@@ -506,6 +510,79 @@ func (r *courierRepository) ListSlots(courierID string, from, to time.Time) ([]d
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate courier slots: %w", err)
+	}
+
+	return result, nil
+}
+
+func (r *courierRepository) GetVehicleCapability(vehicleType domain.VehicleType) (domain.CourierVehicleCapability, error) {
+	if !vehicleType.Valid() {
+		return domain.CourierVehicleCapability{}, domain.ErrCourierVehicleTypeInvalid
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	var capability domain.CourierVehicleCapability
+	err := r.db.QueryRowContext(ctx, `
+		SELECT vehicle_type, max_weight_grams, max_volume_cm3, max_orders_per_trip, updated_at
+		FROM courier_vehicle_capabilities
+		WHERE vehicle_type = $1
+	`, string(vehicleType)).Scan(
+		&capability.VehicleType,
+		&capability.MaxWeightGrams,
+		&capability.MaxVolumeCM3,
+		&capability.MaxOrdersPerTrip,
+		&capability.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.CourierVehicleCapability{}, domain.ErrCourierVehicleCapabilityNotFound
+		}
+		return domain.CourierVehicleCapability{}, fmt.Errorf("get courier vehicle capability: %w", err)
+	}
+
+	if validationErr := firstDomainValidationErr(capability.ValidateInvariants()); validationErr != nil {
+		return domain.CourierVehicleCapability{}, validationErr
+	}
+
+	return capability, nil
+}
+
+func (r *courierRepository) ListVehicleCapabilities() ([]domain.CourierVehicleCapability, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opTimeout)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT vehicle_type, max_weight_grams, max_volume_cm3, max_orders_per_trip, updated_at
+		FROM courier_vehicle_capabilities
+		ORDER BY vehicle_type ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("list courier vehicle capabilities: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]domain.CourierVehicleCapability, 0)
+	for rows.Next() {
+		var capability domain.CourierVehicleCapability
+		if err := rows.Scan(
+			&capability.VehicleType,
+			&capability.MaxWeightGrams,
+			&capability.MaxVolumeCM3,
+			&capability.MaxOrdersPerTrip,
+			&capability.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan courier vehicle capability: %w", err)
+		}
+		if validationErr := firstDomainValidationErr(capability.ValidateInvariants()); validationErr != nil {
+			return nil, validationErr
+		}
+		result = append(result, capability)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate courier vehicle capabilities: %w", err)
 	}
 
 	return result, nil

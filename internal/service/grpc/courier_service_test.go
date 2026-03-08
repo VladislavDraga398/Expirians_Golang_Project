@@ -140,6 +140,70 @@ func TestCourierService_CreateAndListCourierSlots(t *testing.T) {
 	}
 }
 
+func TestCourierService_NightSlotRequiresCar(t *testing.T) {
+	service := NewCourierService(memory.NewCourierRepository(), nil)
+
+	registerResp, err := service.RegisterCourier(context.Background(), &omsv1.RegisterCourierRequest{
+		CourierId:   "courier-night-bike",
+		Phone:       "+79990000006",
+		FirstName:   "Night",
+		LastName:    "Bike",
+		VehicleType: omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE,
+		Zones: []*omsv1.CourierZoneInput{
+			{ZoneId: "msk-cao-arbat", IsPrimary: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register courier: %v", err)
+	}
+
+	// 20:00-08:00 Europe/Moscow == 17:00-05:00 UTC.
+	start := time.Date(2026, time.January, 10, 17, 0, 0, 0, time.UTC)
+	end := start.Add(12 * time.Hour)
+
+	_, err = service.CreateCourierSlot(context.Background(), &omsv1.CreateCourierSlotRequest{
+		CourierId:     registerResp.GetCourier().GetId(),
+		SlotStartUnix: start.Unix(),
+		SlotEndUnix:   end.Unix(),
+		DurationHours: 12,
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("expected FailedPrecondition for bike night slot, got %v (err=%v)", status.Code(err), err)
+	}
+}
+
+func TestCourierService_GetAndListVehicleCapabilities(t *testing.T) {
+	service := NewCourierService(memory.NewCourierRepository(), nil)
+
+	getResp, err := service.GetCourierVehicleCapability(context.Background(), &omsv1.GetCourierVehicleCapabilityRequest{
+		VehicleType: omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_CAR,
+	})
+	if err != nil {
+		t.Fatalf("get vehicle capability: %v", err)
+	}
+	if getResp.GetCapability().GetVehicleType() != omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_CAR {
+		t.Fatalf("unexpected vehicle type: %s", getResp.GetCapability().GetVehicleType().String())
+	}
+	if getResp.GetCapability().GetMaxWeightGrams() <= 0 {
+		t.Fatalf("expected positive max_weight_grams, got %d", getResp.GetCapability().GetMaxWeightGrams())
+	}
+
+	listResp, err := service.ListCourierVehicleCapabilities(context.Background(), &omsv1.ListCourierVehicleCapabilitiesRequest{})
+	if err != nil {
+		t.Fatalf("list vehicle capabilities: %v", err)
+	}
+	if len(listResp.GetCapabilities()) != 3 {
+		t.Fatalf("expected 3 capabilities, got %d", len(listResp.GetCapabilities()))
+	}
+
+	_, err = service.GetCourierVehicleCapability(context.Background(), &omsv1.GetCourierVehicleCapabilityRequest{
+		VehicleType: omsv1.CourierVehicleType_COURIER_VEHICLE_TYPE_UNSPECIFIED,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("expected InvalidArgument for unspecified vehicle type, got %v (err=%v)", status.Code(err), err)
+	}
+}
+
 func TestCourierService_SubmitRatingAndGetSummary(t *testing.T) {
 	service := NewCourierService(memory.NewCourierRepository(), nil)
 

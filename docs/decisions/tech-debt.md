@@ -2,22 +2,24 @@
 
 > Актуальный реестр технического долга для текущей вехи BoostMarket
 
-**Версия:** v1.0 | **Обновлено:** 2026-02-23 | **Статус:** Active
+**Версия:** v1.1 | **Обновлено:** 2026-03-08 | **Статус:** Active
 
 ---
 
 ## TL;DR
 - Критичный долг: runtime всё ещё работает на mock Inventory/Payment интеграциях.
-- Существенный долг: delivery foundation (курьеры/зоны/слоты) есть в storage/domain, но ещё не выведен в публичный API.
-- Контрактный долг: часть proto-полей зарезервирована, но runtime пока их не обрабатывает (`ListOrders` pagination/filter).
+- Существенный долг: OTP-подтверждение телефона курьера ещё не внедрено.
+- Существенный долг: dispatch-движок (назначение курьера на заказ) ещё не реализован.
+- Контрактный долг: часть proto-полей `ListOrders` пока не обрабатывается в runtime.
 - Security-контур production-уровня ещё не внедрён.
 
 ## Приоритеты
 
 | Приоритет | Долг | Влияние | Целевое закрытие |
 |---|---|---|---|
-| P0 | Mock-only Inventory/Payment в runtime | Нельзя считать production-ready финансовый контур | Sprint 2-3 |
-| P1 | Нет публичного Courier API при наличии delivery storage/domain | Sprint 2 не закрыт end-to-end | Sprint 2 |
+| P0 | Mock-only Inventory/Payment в runtime | Нельзя считать production-ready финансовый контур | Sprint 3-4 |
+| P1 | Нет OTP-верификации телефона курьера | Риск подмены/мусорной регистрации courier-профилей | Sprint 3 |
+| P1 | Нет dispatch-движка (assignment) | Delivery-контур не закрыт end-to-end | Sprint 4 |
 | P1 | Неполная реализация `ListOrders` (`page_token`, `filter_statuses`) | Ограничения API-контракта для клиентов | Sprint 3 |
 | P1 | Security baseline (mTLS/JWT/RBAC/secret manager) не реализован | Повышенный риск при внешнем доступе | До production gate |
 | P2 | Дублирование контура инициализации зависимостей (`Dependencies`/`runtimeDependencies`) | Сложность поддержки и риски расхождения | Backlog |
@@ -33,14 +35,21 @@
   2. `OMS_ALLOW_MOCK_INTEGRATIONS` не требуется для production-профиля.
   3. Есть integration tests для happy-path и failure/retry-path.
 
-### P1 — Delivery API не доведён до runtime
-- Факт: таблицы/репозитории `couriers`, `courier_zones`, `courier_slots`, `courier_vehicle_capabilities` уже есть.
-- Факт: публичный gRPC API для курьеров пока отсутствует в `proto`/runtime registration.
-- Риск: нет end-to-end потока для delivery-домена.
+### P1 — OTP-верификация телефона курьера
+- Факт: телефон является уникальным идентификатором, но подтверждение владения номером не реализовано.
+- Риск: регистрация курьеров с неподтверждёнными/чужими номерами.
 - Критерий закрытия:
-  1. Добавлены proto-контракты courier management.
-  2. Добавлены gRPC handlers + валидация доменных правил.
-  3. Добавлены integration/e2e тесты по зонам/слотам/capacity.
+  1. Добавлен OTP flow (issue/verify) с TTL и rate-limit.
+  2. Регистрация/активация курьера требует подтверждённого телефона.
+  3. Добавлены тесты на happy-path и abuse-сценарии.
+
+### P1 — Dispatch engine (assignment) не реализован
+- Факт: есть delivery-сущности (курьеры/зоны/слоты/capabilities/ratings), но нет runtime-алгоритма назначения курьера на заказ.
+- Риск: невозможно замкнуть delivery-поток end-to-end без ручного orchestration.
+- Критерий закрытия:
+  1. Реализован assignment по зоне, типу транспорта, slot-availability и capacity.
+  2. Поддержан fallback/reassign при отказе/таймауте.
+  3. Есть интеграционные тесты на конфликтные и деградированные сценарии.
 
 ### P1 — Контрактный долг `ListOrders`
 - Факт: `ListOrders` использует только `customer_id` + `page_size`.

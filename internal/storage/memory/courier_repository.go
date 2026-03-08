@@ -14,6 +14,7 @@ type courierRepositoryInMemory struct {
 
 	couriers         map[string]domain.Courier
 	courierByPhone   map[string]string
+	vehicleCaps      map[domain.VehicleType]domain.CourierVehicleCapability
 	zonesByCourier   map[string]map[string]domain.CourierZone
 	slotsByCourier   map[string]map[string]domain.CourierSlot
 	ratingsByCourier map[string]map[string]domain.CourierRating
@@ -21,9 +22,17 @@ type courierRepositoryInMemory struct {
 
 // NewCourierRepository создаёт in-memory реализацию CourierRepository.
 func NewCourierRepository() domain.CourierRepository {
+	now := time.Now().UTC()
+	vehicleCaps := make(map[domain.VehicleType]domain.CourierVehicleCapability)
+	for _, capability := range domain.DefaultCourierVehicleCapabilities() {
+		capability.UpdatedAt = now
+		vehicleCaps[capability.VehicleType] = capability
+	}
+
 	return &courierRepositoryInMemory{
 		couriers:         make(map[string]domain.Courier),
 		courierByPhone:   make(map[string]string),
+		vehicleCaps:      vehicleCaps,
 		zonesByCourier:   make(map[string]map[string]domain.CourierZone),
 		slotsByCourier:   make(map[string]map[string]domain.CourierSlot),
 		ratingsByCourier: make(map[string]map[string]domain.CourierRating),
@@ -283,8 +292,12 @@ func (r *courierRepositoryInMemory) CreateSlot(slot domain.CourierSlot) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.couriers[slot.CourierID]; !exists {
+	courier, exists := r.couriers[slot.CourierID]
+	if !exists {
 		return domain.ErrCourierNotFound
+	}
+	if domain.IsNightShiftSlot(slot.SlotStart, slot.SlotEnd) && courier.VehicleType != domain.VehicleTypeCar {
+		return domain.ErrCourierNightSlotCarOnly
 	}
 
 	courierSlots, ok := r.slotsByCourier[slot.CourierID]
@@ -347,6 +360,38 @@ func (r *courierRepositoryInMemory) ListSlots(courierID string, from, to time.Ti
 			return result[i].SlotStart.Before(result[j].SlotStart)
 		}
 		return result[i].ID < result[j].ID
+	})
+
+	return result, nil
+}
+
+func (r *courierRepositoryInMemory) GetVehicleCapability(vehicleType domain.VehicleType) (domain.CourierVehicleCapability, error) {
+	if !vehicleType.Valid() {
+		return domain.CourierVehicleCapability{}, domain.ErrCourierVehicleTypeInvalid
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	capability, exists := r.vehicleCaps[vehicleType]
+	if !exists {
+		return domain.CourierVehicleCapability{}, domain.ErrCourierVehicleCapabilityNotFound
+	}
+
+	return capability, nil
+}
+
+func (r *courierRepositoryInMemory) ListVehicleCapabilities() ([]domain.CourierVehicleCapability, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]domain.CourierVehicleCapability, 0, len(r.vehicleCaps))
+	for _, capability := range r.vehicleCaps {
+		result = append(result, capability)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].VehicleType < result[j].VehicleType
 	})
 
 	return result, nil

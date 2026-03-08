@@ -316,14 +316,16 @@ var OrderService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	CourierService_RegisterCourier_FullMethodName         = "/oms.v1.CourierService/RegisterCourier"
-	CourierService_GetCourier_FullMethodName              = "/oms.v1.CourierService/GetCourier"
-	CourierService_ListCouriersByZone_FullMethodName      = "/oms.v1.CourierService/ListCouriersByZone"
-	CourierService_ReplaceCourierZones_FullMethodName     = "/oms.v1.CourierService/ReplaceCourierZones"
-	CourierService_CreateCourierSlot_FullMethodName       = "/oms.v1.CourierService/CreateCourierSlot"
-	CourierService_ListCourierSlots_FullMethodName        = "/oms.v1.CourierService/ListCourierSlots"
-	CourierService_SubmitCourierRating_FullMethodName     = "/oms.v1.CourierService/SubmitCourierRating"
-	CourierService_GetCourierRatingSummary_FullMethodName = "/oms.v1.CourierService/GetCourierRatingSummary"
+	CourierService_RegisterCourier_FullMethodName                = "/oms.v1.CourierService/RegisterCourier"
+	CourierService_GetCourier_FullMethodName                     = "/oms.v1.CourierService/GetCourier"
+	CourierService_ListCouriersByZone_FullMethodName             = "/oms.v1.CourierService/ListCouriersByZone"
+	CourierService_ReplaceCourierZones_FullMethodName            = "/oms.v1.CourierService/ReplaceCourierZones"
+	CourierService_CreateCourierSlot_FullMethodName              = "/oms.v1.CourierService/CreateCourierSlot"
+	CourierService_ListCourierSlots_FullMethodName               = "/oms.v1.CourierService/ListCourierSlots"
+	CourierService_GetCourierVehicleCapability_FullMethodName    = "/oms.v1.CourierService/GetCourierVehicleCapability"
+	CourierService_ListCourierVehicleCapabilities_FullMethodName = "/oms.v1.CourierService/ListCourierVehicleCapabilities"
+	CourierService_SubmitCourierRating_FullMethodName            = "/oms.v1.CourierService/SubmitCourierRating"
+	CourierService_GetCourierRatingSummary_FullMethodName        = "/oms.v1.CourierService/GetCourierRatingSummary"
 )
 
 // CourierServiceClient is the client API for CourierService service.
@@ -344,6 +346,10 @@ type CourierServiceClient interface {
 	CreateCourierSlot(ctx context.Context, in *CreateCourierSlotRequest, opts ...grpc.CallOption) (*CreateCourierSlotResponse, error)
 	// Список рабочих слотов курьера за период.
 	ListCourierSlots(ctx context.Context, in *ListCourierSlotsRequest, opts ...grpc.CallOption) (*ListCourierSlotsResponse, error)
+	// Capability-профиль по конкретному типу транспорта.
+	GetCourierVehicleCapability(ctx context.Context, in *GetCourierVehicleCapabilityRequest, opts ...grpc.CallOption) (*GetCourierVehicleCapabilityResponse, error)
+	// Capability-профили по всем типам транспорта.
+	ListCourierVehicleCapabilities(ctx context.Context, in *ListCourierVehicleCapabilitiesRequest, opts ...grpc.CallOption) (*ListCourierVehicleCapabilitiesResponse, error)
 	// Добавить оценку качества доставки по курьеру.
 	SubmitCourierRating(ctx context.Context, in *SubmitCourierRatingRequest, opts ...grpc.CallOption) (*SubmitCourierRatingResponse, error)
 	// Получить агрегированную сводку рейтинга курьера.
@@ -418,6 +424,26 @@ func (c *courierServiceClient) ListCourierSlots(ctx context.Context, in *ListCou
 	return out, nil
 }
 
+func (c *courierServiceClient) GetCourierVehicleCapability(ctx context.Context, in *GetCourierVehicleCapabilityRequest, opts ...grpc.CallOption) (*GetCourierVehicleCapabilityResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetCourierVehicleCapabilityResponse)
+	err := c.cc.Invoke(ctx, CourierService_GetCourierVehicleCapability_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *courierServiceClient) ListCourierVehicleCapabilities(ctx context.Context, in *ListCourierVehicleCapabilitiesRequest, opts ...grpc.CallOption) (*ListCourierVehicleCapabilitiesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListCourierVehicleCapabilitiesResponse)
+	err := c.cc.Invoke(ctx, CourierService_ListCourierVehicleCapabilities_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *courierServiceClient) SubmitCourierRating(ctx context.Context, in *SubmitCourierRatingRequest, opts ...grpc.CallOption) (*SubmitCourierRatingResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SubmitCourierRatingResponse)
@@ -456,6 +482,10 @@ type CourierServiceServer interface {
 	CreateCourierSlot(context.Context, *CreateCourierSlotRequest) (*CreateCourierSlotResponse, error)
 	// Список рабочих слотов курьера за период.
 	ListCourierSlots(context.Context, *ListCourierSlotsRequest) (*ListCourierSlotsResponse, error)
+	// Capability-профиль по конкретному типу транспорта.
+	GetCourierVehicleCapability(context.Context, *GetCourierVehicleCapabilityRequest) (*GetCourierVehicleCapabilityResponse, error)
+	// Capability-профили по всем типам транспорта.
+	ListCourierVehicleCapabilities(context.Context, *ListCourierVehicleCapabilitiesRequest) (*ListCourierVehicleCapabilitiesResponse, error)
 	// Добавить оценку качества доставки по курьеру.
 	SubmitCourierRating(context.Context, *SubmitCourierRatingRequest) (*SubmitCourierRatingResponse, error)
 	// Получить агрегированную сводку рейтинга курьера.
@@ -484,6 +514,12 @@ func (UnimplementedCourierServiceServer) CreateCourierSlot(context.Context, *Cre
 }
 func (UnimplementedCourierServiceServer) ListCourierSlots(context.Context, *ListCourierSlotsRequest) (*ListCourierSlotsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListCourierSlots not implemented")
+}
+func (UnimplementedCourierServiceServer) GetCourierVehicleCapability(context.Context, *GetCourierVehicleCapabilityRequest) (*GetCourierVehicleCapabilityResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetCourierVehicleCapability not implemented")
+}
+func (UnimplementedCourierServiceServer) ListCourierVehicleCapabilities(context.Context, *ListCourierVehicleCapabilitiesRequest) (*ListCourierVehicleCapabilitiesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListCourierVehicleCapabilities not implemented")
 }
 func (UnimplementedCourierServiceServer) SubmitCourierRating(context.Context, *SubmitCourierRatingRequest) (*SubmitCourierRatingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitCourierRating not implemented")
@@ -612,6 +648,42 @@ func _CourierService_ListCourierSlots_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CourierService_GetCourierVehicleCapability_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetCourierVehicleCapabilityRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CourierServiceServer).GetCourierVehicleCapability(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CourierService_GetCourierVehicleCapability_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CourierServiceServer).GetCourierVehicleCapability(ctx, req.(*GetCourierVehicleCapabilityRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CourierService_ListCourierVehicleCapabilities_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListCourierVehicleCapabilitiesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CourierServiceServer).ListCourierVehicleCapabilities(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CourierService_ListCourierVehicleCapabilities_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CourierServiceServer).ListCourierVehicleCapabilities(ctx, req.(*ListCourierVehicleCapabilitiesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _CourierService_SubmitCourierRating_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SubmitCourierRatingRequest)
 	if err := dec(in); err != nil {
@@ -678,6 +750,14 @@ var CourierService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListCourierSlots",
 			Handler:    _CourierService_ListCourierSlots_Handler,
+		},
+		{
+			MethodName: "GetCourierVehicleCapability",
+			Handler:    _CourierService_GetCourierVehicleCapability_Handler,
+		},
+		{
+			MethodName: "ListCourierVehicleCapabilities",
+			Handler:    _CourierService_ListCourierVehicleCapabilities_Handler,
 		},
 		{
 			MethodName: "SubmitCourierRating",

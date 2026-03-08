@@ -2,7 +2,7 @@
 
 Практические примеры вызова gRPC API OMS через `grpcurl`.
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
+**Версия:** v2.3 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
@@ -202,6 +202,75 @@ grpcurl -plaintext \
   ],
   "next_page_token": ""
 }
+```
+
+---
+
+## RegisterCourier
+
+```bash
+grpcurl -plaintext \
+  -d '{
+    "phone": "+79991234567",
+    "first_name": "Ivan",
+    "last_name": "Petrov",
+    "vehicle_type": "COURIER_VEHICLE_TYPE_CAR",
+    "zones": [
+      {"zone_id":"ЦАО","is_primary":true},
+      {"zone_id":"САО","is_primary":false}
+    ]
+  }' \
+  localhost:50051 oms.v1.CourierService/RegisterCourier
+```
+
+---
+
+## CreateCourierSlot (night shift for car)
+
+```bash
+grpcurl -plaintext \
+  -d '{
+    "courier_id":"courier-123",
+    "slot_start_unix": 1761930000,
+    "slot_end_unix": 1761973200,
+    "duration_hours": 12
+  }' \
+  localhost:50051 oms.v1.CourierService/CreateCourierSlot
+```
+
+---
+
+## ListCourierVehicleCapabilities
+
+```bash
+grpcurl -plaintext \
+  -d '{}' \
+  localhost:50051 oms.v1.CourierService/ListCourierVehicleCapabilities
+```
+
+---
+
+## SubmitCourierRating
+
+```bash
+grpcurl -plaintext \
+  -d '{
+    "courier_id":"courier-123",
+    "score": 2,
+    "tags": ["COURIER_RATING_TAG_DELAYED_DELIVERY"],
+    "comment": "Опоздание на 25 минут"
+  }' \
+  localhost:50051 oms.v1.CourierService/SubmitCourierRating
+```
+
+---
+
+## GetCourierRatingSummary
+
+```bash
+grpcurl -plaintext \
+  -d '{"courier_id":"courier-123"}' \
+  localhost:50051 oms.v1.CourierService/GetCourierRatingSummary
 ```
 
 ---

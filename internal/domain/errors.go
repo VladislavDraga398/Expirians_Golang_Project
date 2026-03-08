@@ -65,6 +65,10 @@ var (
 	ErrCourierLastNameRequired = errors.New("courier last name is required")
 	// ErrCourierVehicleTypeInvalid — указан неподдерживаемый тип транспорта.
 	ErrCourierVehicleTypeInvalid = errors.New("courier vehicle type is invalid")
+	// ErrCourierVehicleCapabilityInvalid — capability транспорта содержит некорректные лимиты.
+	ErrCourierVehicleCapabilityInvalid = errors.New("courier vehicle capability is invalid")
+	// ErrCourierVehicleCapabilityNotFound — capability для типа транспорта не найден.
+	ErrCourierVehicleCapabilityNotFound = errors.New("courier vehicle capability not found")
 	// ErrCourierNotFound — курьер не найден в репозитории.
 	ErrCourierNotFound = errors.New("courier not found")
 	// ErrCourierAlreadyExists — курьер с таким ID уже существует.
@@ -97,6 +101,8 @@ var (
 	ErrCourierSlotStatusInvalid = errors.New("courier slot status is invalid")
 	// ErrCourierSlotConflict — слот пересекается с существующим или дублируется.
 	ErrCourierSlotConflict = errors.New("courier slot conflict")
+	// ErrCourierNightSlotCarOnly — ночной слот 20:00-08:00 доступен только курьерам на авто.
+	ErrCourierNightSlotCarOnly = errors.New("courier night slot is allowed only for car")
 	// ErrCourierRatingIDRequired — отсутствует идентификатор оценки.
 	ErrCourierRatingIDRequired = errors.New("courier rating id is required")
 	// ErrCourierRatingScoreInvalid — оценка курьера вне допустимого диапазона.

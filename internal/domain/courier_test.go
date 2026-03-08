@@ -120,6 +120,32 @@ func TestCourierSlotValidateInvariants(t *testing.T) {
 	}
 }
 
+func TestIsNightShiftSlot(t *testing.T) {
+	start := time.Date(2026, time.January, 10, 17, 0, 0, 0, time.UTC) // 20:00 Europe/Moscow
+	end := start.Add(12 * time.Hour)                                  // 08:00 Europe/Moscow
+	if !domain.IsNightShiftSlot(start, end) {
+		t.Fatal("expected slot to be recognized as night shift")
+	}
+
+	badStart := start.Add(30 * time.Minute)
+	if domain.IsNightShiftSlot(badStart, badStart.Add(12*time.Hour)) {
+		t.Fatal("expected non 20:00 slot not to be recognized as night shift")
+	}
+}
+
+func TestDefaultCourierVehicleCapabilities(t *testing.T) {
+	capabilities := domain.DefaultCourierVehicleCapabilities()
+	if len(capabilities) != 3 {
+		t.Fatalf("expected 3 capabilities, got %d", len(capabilities))
+	}
+
+	for _, capability := range capabilities {
+		if errs := capability.ValidateInvariants(); len(errs) != 0 {
+			t.Fatalf("expected valid capability, got %v", errs)
+		}
+	}
+}
+
 func TestCourierSlotStatusValid(t *testing.T) {
 	validStatuses := []domain.CourierSlotStatus{
 		domain.CourierSlotStatusPlanned,

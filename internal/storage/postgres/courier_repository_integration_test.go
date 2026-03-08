@@ -310,6 +310,45 @@ func TestCourierRepository_PostgresSlots(t *testing.T) {
 	if slots[0].ID != "slot-1" || slots[1].ID != "slot-3" {
 		t.Fatalf("unexpected slots order: %+v", slots)
 	}
+
+	nightSlot := domain.CourierSlot{
+		ID:            "slot-night-bike",
+		CourierID:     courier.ID,
+		SlotStart:     time.Date(2026, time.January, 10, 17, 0, 0, 0, time.UTC), // 20:00 MSK
+		SlotEnd:       time.Date(2026, time.January, 11, 5, 0, 0, 0, time.UTC),  // 08:00 MSK
+		DurationHours: 12,
+	}
+	if err := repo.CreateSlot(nightSlot); !errors.Is(err, domain.ErrCourierNightSlotCarOnly) {
+		t.Fatalf("expected ErrCourierNightSlotCarOnly, got %v", err)
+	}
+}
+
+func TestCourierRepository_PostgresVehicleCapabilities(t *testing.T) {
+	store := openPostgresStoreForIntegrationTest(t)
+	repo := NewCourierRepository(store)
+
+	carCapability, err := repo.GetVehicleCapability(domain.VehicleTypeCar)
+	if err != nil {
+		t.Fatalf("get car capability: %v", err)
+	}
+	if carCapability.VehicleType != domain.VehicleTypeCar {
+		t.Fatalf("unexpected vehicle type in capability: got=%s want=%s", carCapability.VehicleType, domain.VehicleTypeCar)
+	}
+	if carCapability.MaxWeightGrams <= 0 || carCapability.MaxVolumeCM3 <= 0 || carCapability.MaxOrdersPerTrip <= 0 {
+		t.Fatalf("expected positive capability limits, got %+v", carCapability)
+	}
+
+	all, err := repo.ListVehicleCapabilities()
+	if err != nil {
+		t.Fatalf("list vehicle capabilities: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3 capabilities, got %d", len(all))
+	}
+
+	if _, err := repo.GetVehicleCapability(domain.VehicleType("truck")); !errors.Is(err, domain.ErrCourierVehicleTypeInvalid) {
+		t.Fatalf("expected ErrCourierVehicleTypeInvalid, got %v", err)
+	}
 }
 
 func TestCourierRepository_PostgresValidationAndNotFoundBranches(t *testing.T) {

@@ -106,6 +106,14 @@ message CourierSlot {
   CourierSlotStatus status = 6;
 }
 
+message CourierVehicleCapability {
+  CourierVehicleType vehicle_type = 1;
+  int32 max_weight_grams = 2;
+  int32 max_volume_cm3 = 3;
+  int32 max_orders_per_trip = 4;
+  int64 updated_at_unix = 5;
+}
+
 // ---- Requests & Responses ----
 message CreateOrderRequest {
   string customer_id = 1;
@@ -228,6 +236,20 @@ message ListCourierSlotsRequest {
 
 message ListCourierSlotsResponse {
   repeated CourierSlot slots = 1;
+}
+
+message GetCourierVehicleCapabilityRequest {
+  CourierVehicleType vehicle_type = 1;
+}
+
+message GetCourierVehicleCapabilityResponse {
+  CourierVehicleCapability capability = 1;
+}
+
+message ListCourierVehicleCapabilitiesRequest {}
+
+message ListCourierVehicleCapabilitiesResponse {
+  repeated CourierVehicleCapability capabilities = 1;
 }
 
 message SubmitCourierRatingRequest {
@@ -364,6 +386,20 @@ service CourierService {
   rpc ListCourierSlots(ListCourierSlotsRequest) returns (ListCourierSlotsResponse) {
     option (google.api.http) = {
       get: "/v1/couriers/{courier_id}/slots"
+    };
+  }
+
+  // Capability-профиль по конкретному типу транспорта.
+  rpc GetCourierVehicleCapability(GetCourierVehicleCapabilityRequest) returns (GetCourierVehicleCapabilityResponse) {
+    option (google.api.http) = {
+      get: "/v1/courier-vehicle-capabilities/{vehicle_type}"
+    };
+  }
+
+  // Capability-профили по всем типам транспорта.
+  rpc ListCourierVehicleCapabilities(ListCourierVehicleCapabilitiesRequest) returns (ListCourierVehicleCapabilitiesResponse) {
+    option (google.api.http) = {
+      get: "/v1/courier-vehicle-capabilities"
     };
   }
 

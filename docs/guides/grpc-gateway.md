@@ -2,7 +2,7 @@
 
 REST API поверх gRPC через gRPC-Gateway.
 
-> Статус на 2026-02-23: в runtime OMS сейчас включён только gRPC сервер; REST gateway остаётся как планируемое расширение.
+> Статус на 2026-03-08: в runtime OMS включён gRPC сервер (`OrderService` + `CourierService`); REST gateway остаётся планируемым расширением.
 
 ## Обзор
 

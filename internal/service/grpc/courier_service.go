@@ -269,6 +269,51 @@ func (s *CourierService) ListCourierSlots(_ context.Context, req *omsv1.ListCour
 	return &omsv1.ListCourierSlotsResponse{Slots: result}, nil
 }
 
+// GetCourierVehicleCapability возвращает capability-профиль указанного типа транспорта.
+func (s *CourierService) GetCourierVehicleCapability(_ context.Context, req *omsv1.GetCourierVehicleCapabilityRequest) (*omsv1.GetCourierVehicleCapabilityResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if s.repo == nil {
+		return nil, status.Error(codes.Internal, "courier repository is not configured")
+	}
+
+	vehicleType, err := toDomainCourierVehicleType(req.VehicleType)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	capability, err := s.repo.GetVehicleCapability(vehicleType)
+	if err != nil {
+		return nil, s.mapCourierErr(err, "failed to get courier vehicle capability")
+	}
+
+	return &omsv1.GetCourierVehicleCapabilityResponse{
+		Capability: toProtoCourierVehicleCapability(capability),
+	}, nil
+}
+
+// ListCourierVehicleCapabilities возвращает capability-профили по всем типам транспорта.
+func (s *CourierService) ListCourierVehicleCapabilities(_ context.Context, _ *omsv1.ListCourierVehicleCapabilitiesRequest) (*omsv1.ListCourierVehicleCapabilitiesResponse, error) {
+	if s.repo == nil {
+		return nil, status.Error(codes.Internal, "courier repository is not configured")
+	}
+
+	capabilities, err := s.repo.ListVehicleCapabilities()
+	if err != nil {
+		return nil, s.mapCourierErr(err, "failed to list courier vehicle capabilities")
+	}
+
+	result := make([]*omsv1.CourierVehicleCapability, 0, len(capabilities))
+	for _, capability := range capabilities {
+		result = append(result, toProtoCourierVehicleCapability(capability))
+	}
+
+	return &omsv1.ListCourierVehicleCapabilitiesResponse{
+		Capabilities: result,
+	}, nil
+}
+
 // SubmitCourierRating сохраняет оценку качества доставки по курьеру.
 func (s *CourierService) SubmitCourierRating(_ context.Context, req *omsv1.SubmitCourierRatingRequest) (*omsv1.SubmitCourierRatingResponse, error) {
 	if req == nil {
@@ -335,6 +380,8 @@ func (s *CourierService) mapCourierErr(err error, internalMessage string) error 
 		return nil
 	case errors.Is(err, domain.ErrCourierNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, domain.ErrCourierVehicleCapabilityNotFound):
+		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrCourierAlreadyExists), errors.Is(err, domain.ErrCourierPhoneAlreadyExists):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrCourierRatingAlreadyExists):
@@ -343,6 +390,7 @@ func (s *CourierService) mapCourierErr(err error, internalMessage string) error 
 		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.Is(err, domain.ErrCourierZoneLimitExceeded),
 		errors.Is(err, domain.ErrCourierPrimaryZoneConflict),
+		errors.Is(err, domain.ErrCourierNightSlotCarOnly),
 		errors.Is(err, domain.ErrCourierSlotConflict):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrCourierIDRequired),
@@ -351,6 +399,7 @@ func (s *CourierService) mapCourierErr(err error, internalMessage string) error 
 		errors.Is(err, domain.ErrCourierFirstNameRequired),
 		errors.Is(err, domain.ErrCourierLastNameRequired),
 		errors.Is(err, domain.ErrCourierVehicleTypeInvalid),
+		errors.Is(err, domain.ErrCourierVehicleCapabilityInvalid),
 		errors.Is(err, domain.ErrCourierZoneRequired),
 		errors.Is(err, domain.ErrCourierZoneUnknown),
 		errors.Is(err, domain.ErrCourierZonesRequired),
@@ -504,12 +553,22 @@ func toProtoCourierSlot(slot domain.CourierSlot) *omsv1.CourierSlot {
 		CourierId:     slot.CourierID,
 		SlotStartUnix: slot.SlotStart.Unix(),
 		SlotEndUnix:   slot.SlotEnd.Unix(),
-		DurationHours: toProtoDurationHours(slot.DurationHours),
+		DurationHours: toProtoInt32(slot.DurationHours),
 		Status:        toProtoCourierSlotStatus(slot.Status),
 	}
 }
 
-func toProtoDurationHours(value int) int32 {
+func toProtoCourierVehicleCapability(capability domain.CourierVehicleCapability) *omsv1.CourierVehicleCapability {
+	return &omsv1.CourierVehicleCapability{
+		VehicleType:      toProtoCourierVehicleType(capability.VehicleType),
+		MaxWeightGrams:   toProtoInt32(capability.MaxWeightGrams),
+		MaxVolumeCm3:     toProtoInt32(capability.MaxVolumeCM3),
+		MaxOrdersPerTrip: toProtoInt32(capability.MaxOrdersPerTrip),
+		UpdatedAtUnix:    capability.UpdatedAt.Unix(),
+	}
+}
+
+func toProtoInt32(value int) int32 {
 	if value > math.MaxInt32 {
 		return math.MaxInt32
 	}
