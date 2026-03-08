@@ -12,6 +12,7 @@ import (
 // Dependencies содержит все зависимости приложения.
 type Dependencies struct {
 	Repo         domain.OrderRepository
+	CourierRepo  domain.CourierRepository
 	OutboxRepo   domain.OutboxRepository
 	TimelineRepo domain.TimelineRepository
 	InventorySvc domain.InventoryService
@@ -27,6 +28,7 @@ func NewDependencies(logger *log.Entry) *Dependencies {
 
 	return &Dependencies{
 		Repo:         memory.NewOrderRepository(),
+		CourierRepo:  memory.NewCourierRepository(),
 		OutboxRepo:   memory.NewOutboxRepository(),
 		TimelineRepo: memory.NewTimelineRepository(),
 		InventorySvc: inventory.NewMockService(),

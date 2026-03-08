@@ -178,10 +178,12 @@ func Run(ctx context.Context, cfg Config) error {
 
 	serviceLogger := logger.WithField("layer", "grpc")
 	orderService := grpcsvc.NewOrderService(deps.Repo, deps.TimelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
+	courierService := grpcsvc.NewCourierService(deps.CourierRepo, serviceLogger.WithField("service", "courier"))
 	grpcMetrics := promgrpc.DefaultServerMetrics
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))
 
 	omsv1.RegisterOrderServiceServer(grpcServer, orderService)
+	omsv1.RegisterCourierServiceServer(grpcServer, courierService)
 	grpcMetrics.InitializeMetrics(grpcServer)
 
 	// Register reflection service for grpcurl and load testing tools
@@ -265,6 +267,7 @@ func newAppDependencies(runtime runtimeDependencies, logger *log.Entry) *Depende
 
 	return &Dependencies{
 		Repo:         runtime.repo,
+		CourierRepo:  runtime.courierRepo,
 		OutboxRepo:   runtime.outboxRepo,
 		TimelineRepo: runtime.timelineRepo,
 		InventorySvc: inventory.NewMockService(),
@@ -275,6 +278,7 @@ func newAppDependencies(runtime runtimeDependencies, logger *log.Entry) *Depende
 
 type runtimeDependencies struct {
 	repo            domain.OrderRepository
+	courierRepo     domain.CourierRepository
 	outboxRepo      domain.OutboxRepository
 	timelineRepo    domain.TimelineRepository
 	idempotencyRepo domain.IdempotencyRepository
@@ -289,6 +293,7 @@ func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry)
 	case StorageDriverMemory:
 		return runtimeDependencies{
 			repo:            memory.NewOrderRepository(),
+			courierRepo:     memory.NewCourierRepository(),
 			outboxRepo:      memory.NewOutboxRepository(),
 			timelineRepo:    memory.NewTimelineRepository(),
 			idempotencyRepo: memory.NewIdempotencyRepository(),
@@ -320,6 +325,7 @@ func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry)
 
 		return runtimeDependencies{
 			repo:            postgres.NewOrderRepository(store),
+			courierRepo:     postgres.NewCourierRepository(store),
 			outboxRepo:      postgres.NewOutboxRepository(store),
 			timelineRepo:    postgres.NewTimelineRepository(store),
 			idempotencyRepo: postgres.NewIdempotencyRepository(store),
