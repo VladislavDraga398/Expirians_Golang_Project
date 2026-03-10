@@ -226,8 +226,9 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool \
             prom/prometheus@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702 \
-            promtool check rules /etc/prometheus/alerts.yml
+            check rules /etc/prometheus/alerts.yml
 
       - name: Select stand profile by target branch
         run: |
