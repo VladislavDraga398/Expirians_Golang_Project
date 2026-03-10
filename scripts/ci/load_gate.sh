@@ -22,7 +22,8 @@ need jq
 
 ADDR=${ADDR:-localhost:50051}
 MODE=${MODE:-create}
-TOTAL=${TOTAL:-400}
+DURATION=${DURATION:-}
+TOTAL=${TOTAL:-}
 CONCURRENCY=${CONCURRENCY:-40}
 CONNECTIONS=${CONNECTIONS:-20}
 TIMEOUT=${TIMEOUT:-5s}
@@ -34,18 +35,34 @@ MAX_P95_MS=${MAX_P95_MS:-350}
 MAX_AVG_MS=${MAX_AVG_MS:-120}
 
 echo "Running load gate against $ADDR"
-echo "mode=$MODE n=$TOTAL c=$CONCURRENCY connections=$CONNECTIONS timeout=$TIMEOUT"
+if [[ -n "$DURATION" ]]; then
+  echo "mode=$MODE duration=$DURATION c=$CONCURRENCY connections=$CONNECTIONS timeout=$TIMEOUT"
+else
+  if [[ -z "$TOTAL" ]]; then
+    TOTAL=400
+  fi
+  echo "mode=$MODE n=$TOTAL c=$CONCURRENCY connections=$CONNECTIONS timeout=$TIMEOUT"
+fi
+
+args=(
+  -addr "$ADDR"
+  -mode "$MODE"
+  -concurrency "$CONCURRENCY"
+  -connections "$CONNECTIONS"
+  -timeout "$TIMEOUT"
+  -cancel-rate "$CANCEL_RATE"
+  -output "$OUT"
+)
+
+if [[ -n "$TOTAL" ]]; then
+  args+=(-total "$TOTAL")
+fi
+if [[ -n "$DURATION" ]]; then
+  args+=(-duration "$DURATION")
+fi
 
 set +e
-"$GO" run "$RUNNER" \
-  -addr "$ADDR" \
-  -mode "$MODE" \
-  -total "$TOTAL" \
-  -concurrency "$CONCURRENCY" \
-  -connections "$CONNECTIONS" \
-  -timeout "$TIMEOUT" \
-  -cancel-rate "$CANCEL_RATE" \
-  -output "$OUT"
+"$GO" run "$RUNNER" "${args[@]}"
 load_exit=$?
 set -e
 

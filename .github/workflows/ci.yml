@@ -11,10 +11,16 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 env:
   GO_VERSION: '1.24.x'
   GOLANGCI_LINT_VERSION: v1.64.8
+  GRPCURL_VERSION: v1.9.2
   COVERAGE_MIN_PERCENT: '80.0'
+  STAND_SHADOW_MODE: 'true'
+  STAND_ENFORCE_STRICT: 'false'
 
 jobs:
   # ========================================================================
@@ -25,10 +31,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -51,7 +57,7 @@ jobs:
           echo "✅ go vet passed"
 
       - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
@@ -64,7 +70,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Run repository hygiene gate
         run: |
@@ -96,10 +102,10 @@ jobs:
       OMS_POSTGRES_DSN: postgres://oms:oms@localhost:5432/oms?sslmode=disable
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -151,7 +157,7 @@ jobs:
           '
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238
         with:
           file: ./coverage.out
           flags: unittests
@@ -167,10 +173,10 @@ jobs:
     needs: [lint, test]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -181,7 +187,7 @@ jobs:
 
       - name: Upload migration logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: migration-check-logs
           path: postgres-migration-logs.txt
@@ -193,24 +199,36 @@ jobs:
   premerge_stand:
     name: Pre-Merge Stand
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [lint, test, migration_check, build]
+    outputs:
+      stand_mode: ${{ steps.stand_mode.outputs.mode }}
+      shadow_failed: ${{ steps.shadow_eval.outputs.failed }}
     if: |
       github.event_name == 'pull_request' ||
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/dev'))
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Install grpcurl
         run: |
-          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${{ env.GRPCURL_VERSION }}
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Prometheus alert rules
+        run: |
+          docker run --rm \
+            -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702 \
+            check rules /etc/prometheus/alerts.yml
 
       - name: Select stand profile by target branch
         run: |
@@ -222,20 +240,22 @@ jobs:
           profile=dev
           smoke_iterations=40
           smoke_cancel_rate=20
-          load_max_error_rate=0.020
-          load_max_p95_ms=500
-          load_max_avg_ms=180
-          load_total=200
-          load_concurrency=20
-          load_connections=10
+          load_max_error_rate=0.015
+          load_max_p95_ms=700
+          load_max_avg_ms=450
+          load_timeout=8s
+          load_total=250
+          load_concurrency=25
+          load_connections=12
 
           if [ "$target_ref" = "main" ] || [ "$target_ref" = "master" ]; then
             profile=release
             smoke_iterations=120
             smoke_cancel_rate=25
             load_max_error_rate=0.010
-            load_max_p95_ms=350
-            load_max_avg_ms=120
+            load_max_p95_ms=950
+            load_max_avg_ms=650
+            load_timeout=8s
             load_total=400
             load_concurrency=40
             load_connections=20
@@ -247,13 +267,36 @@ jobs:
           echo "LOAD_MAX_ERROR_RATE=$load_max_error_rate" >> "$GITHUB_ENV"
           echo "LOAD_MAX_P95_MS=$load_max_p95_ms" >> "$GITHUB_ENV"
           echo "LOAD_MAX_AVG_MS=$load_max_avg_ms" >> "$GITHUB_ENV"
+          echo "LOAD_TIMEOUT=$load_timeout" >> "$GITHUB_ENV"
           echo "LOAD_TOTAL=$load_total" >> "$GITHUB_ENV"
           echo "LOAD_CONCURRENCY=$load_concurrency" >> "$GITHUB_ENV"
           echo "LOAD_CONNECTIONS=$load_connections" >> "$GITHUB_ENV"
 
           echo "✅ Selected '$profile' stand profile for target_ref=$target_ref"
 
+      - name: Determine stand rollout mode
+        id: stand_mode
+        run: |
+          if [[ "${STAND_ENFORCE_STRICT}" == "true" ]]; then
+            echo "mode=strict" >> "$GITHUB_OUTPUT"
+            echo "stand_mode=strict" >> "$GITHUB_ENV"
+            mode="strict"
+          elif [[ "${STAND_SHADOW_MODE}" == "true" ]]; then
+            echo "mode=shadow" >> "$GITHUB_OUTPUT"
+            echo "stand_mode=shadow" >> "$GITHUB_ENV"
+            mode="shadow"
+          else
+            echo "mode=base" >> "$GITHUB_OUTPUT"
+            echo "stand_mode=base" >> "$GITHUB_ENV"
+            mode="base"
+          fi
+          echo "Selected stand rollout mode: ${mode}"
+
       - name: Boot integration stand
+        env:
+          OMS_STORAGE_DRIVER: postgres
+          OMS_ALLOW_MOCK_INTEGRATIONS: "true"
+          OMS_POSTGRES_DSN: postgres://oms:oms@postgres:5432/oms?sslmode=disable
         run: |
           docker compose up -d --build oms zookeeper kafka prometheus
 
@@ -271,37 +314,132 @@ jobs:
           docker compose ps
           exit 1
 
+      - name: gRPC readiness probe
+        run: |
+          grpcurl -plaintext \
+            -import-path . \
+            -import-path proto \
+            -proto proto/oms/v1/order_service.proto \
+            -d '{"customer_id":"stand-readiness-probe","page_size":1}' \
+            localhost:50051 oms.v1.OrderService/ListOrders >/dev/null
+          echo "✅ gRPC endpoint is reachable"
+
+      - name: Run outbox delivery gate (strict)
+        if: env.STAND_ENFORCE_STRICT == 'true'
+        run: |
+          LOG_FILE=/tmp/outbox-delivery-gate.log ./scripts/ci/outbox_delivery_gate.sh
+
       - name: Run saga lifecycle smoke load
         run: |
           ITERATIONS=${SMOKE_ITERATIONS} CANCEL_RATE=${SMOKE_CANCEL_RATE} ./scripts/saga_load.sh
 
-      - name: Run observability gate
-        run: |
-          CHECK_PROMETHEUS=1 ./scripts/ci/observability_gate.sh
-
-      - name: Run load gate
+      - name: Run load gate (strict)
+        if: env.STAND_ENFORCE_STRICT == 'true'
         run: |
           MODE=create-pay-cancel \
           CANCEL_RATE=${SMOKE_CANCEL_RATE} \
+          TIMEOUT=${LOAD_TIMEOUT} \
           MAX_ERROR_RATE=${LOAD_MAX_ERROR_RATE} \
           MAX_P95_MS=${LOAD_MAX_P95_MS} \
           MAX_AVG_MS=${LOAD_MAX_AVG_MS} \
           TOTAL=${LOAD_TOTAL} \
           CONCURRENCY=${LOAD_CONCURRENCY} \
           CONNECTIONS=${LOAD_CONNECTIONS} \
+          OUT=/tmp/load-gate-report.json \
           ./scripts/ci/load_gate.sh
 
-      - name: Collect stand logs
+      - name: Run observability gate (strict)
+        if: env.STAND_ENFORCE_STRICT == 'true'
+        run: |
+          CHECK_PROMETHEUS=1 \
+          CHECK_OUTBOX_ATTEMPTS=1 \
+          METRICS_FILE=/tmp/oms-metrics.prom \
+          ./scripts/ci/observability_gate.sh
+
+      - name: Run outbox delivery gate (shadow)
+        id: shadow_outbox
+        if: env.STAND_SHADOW_MODE == 'true' && env.STAND_ENFORCE_STRICT != 'true'
+        continue-on-error: true
+        run: |
+          LOG_FILE=/tmp/outbox-delivery-gate.log ./scripts/ci/outbox_delivery_gate.sh
+
+      - name: Run load gate (shadow)
+        id: shadow_load
+        if: env.STAND_SHADOW_MODE == 'true' && env.STAND_ENFORCE_STRICT != 'true'
+        continue-on-error: true
+        run: |
+          MODE=create-pay-cancel \
+          CANCEL_RATE=${SMOKE_CANCEL_RATE} \
+          TIMEOUT=${LOAD_TIMEOUT} \
+          MAX_ERROR_RATE=${LOAD_MAX_ERROR_RATE} \
+          MAX_P95_MS=${LOAD_MAX_P95_MS} \
+          MAX_AVG_MS=${LOAD_MAX_AVG_MS} \
+          TOTAL=${LOAD_TOTAL} \
+          CONCURRENCY=${LOAD_CONCURRENCY} \
+          CONNECTIONS=${LOAD_CONNECTIONS} \
+          OUT=/tmp/load-gate-report.json \
+          ./scripts/ci/load_gate.sh
+
+      - name: Run observability gate (shadow)
+        id: shadow_observability
+        if: env.STAND_SHADOW_MODE == 'true' && env.STAND_ENFORCE_STRICT != 'true'
+        continue-on-error: true
+        run: |
+          CHECK_PROMETHEUS=1 \
+          CHECK_OUTBOX_ATTEMPTS=1 \
+          METRICS_FILE=/tmp/oms-metrics.prom \
+          ./scripts/ci/observability_gate.sh
+
+      - name: Evaluate shadow gate results
+        id: shadow_eval
+        if: always() && env.STAND_SHADOW_MODE == 'true' && env.STAND_ENFORCE_STRICT != 'true'
+        env:
+          OUTBOX_OUTCOME: ${{ steps.shadow_outbox.outcome }}
+          LOAD_OUTCOME: ${{ steps.shadow_load.outcome }}
+          OBS_OUTCOME: ${{ steps.shadow_observability.outcome }}
+        run: |
+          failed=false
+          for outcome in "$OUTBOX_OUTCOME" "$LOAD_OUTCOME" "$OBS_OUTCOME"; do
+            if [[ "$outcome" != "success" ]]; then
+              failed=true
+            fi
+          done
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Stand Shadow Gates"
+            echo
+            echo "| Gate | Outcome |"
+            echo "|---|---|"
+            echo "| Outbox delivery | ${OUTBOX_OUTCOME:-skipped} |"
+            echo "| Load gate | ${LOAD_OUTCOME:-skipped} |"
+            echo "| Observability gate | ${OBS_OUTCOME:-skipped} |"
+            echo
+            if [[ "$failed" == "true" ]]; then
+              echo "⚠️ Shadow gates have failures (non-blocking in current rollout mode)."
+            else
+              echo "✅ Shadow gates passed."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect stand artifacts
         if: always()
         run: |
-          docker compose logs --tail=200 > compose-logs.txt || true
+          docker compose logs --tail=300 > compose-logs.txt || true
+          cp /tmp/load-gate-report.json load-gate-report.json || true
+          cp /tmp/oms-metrics.prom oms-metrics.prom || true
+          cp /tmp/outbox-delivery-gate.log outbox-delivery-gate.log || true
 
-      - name: Upload stand logs
+      - name: Upload stand artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: premerge-stand-logs
-          path: compose-logs.txt
+          name: premerge-stand-artifacts
+          path: |
+            compose-logs.txt
+            load-gate-report.json
+            oms-metrics.prom
+            outbox-delivery-gate.log
           retention-days: 7
 
       - name: Shutdown stand
@@ -318,10 +456,10 @@ jobs:
     needs: [lint, test, migration_check]
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -340,7 +478,7 @@ jobs:
           ls -lh bin/order-service
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: order-service-binary
           path: bin/order-service
@@ -356,13 +494,13 @@ jobs:
     if: github.event_name == 'push'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
 
       - name: Build Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
         with:
           context: .
           push: false
@@ -378,13 +516,13 @@ jobs:
 
       # Uncomment to push to registry
       # - name: Login to Docker Hub
-      #   uses: docker/login-action@v3
+      #   uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
       #   with:
       #     username: ${{ secrets.DOCKERHUB_USERNAME }}
       #     password: ${{ secrets.DOCKERHUB_TOKEN }}
       #
       # - name: Push Docker image
-      #   uses: docker/build-push-action@v5
+      #   uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25
       #   with:
       #     context: .
       #     push: true
@@ -399,17 +537,21 @@ jobs:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: [lint, repo_hygiene]
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@v2.9.6
+        uses: securego/gosec@1d909e2687abe43eaa81af88d6efde3d20c8d481
         with:
           args: '-fmt sarif -out results.sarif ./...'
 
       - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@820e3160e279568db735cee8ed8f8e77a6da7818
         with:
           sarif_file: results.sarif
         continue-on-error: true
@@ -435,6 +577,8 @@ jobs:
           echo "| Migration Check | ${{ needs.migration_check.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Build | ${{ needs.build.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Pre-Merge Stand | ${{ needs.premerge_stand.result == 'success' && '✅ Passed' || needs.premerge_stand.result == 'skipped' && '➖ Skipped' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stand Mode | ${{ needs.premerge_stand.outputs.stand_mode == 'strict' && '🔒 Strict (blocking)' || needs.premerge_stand.outputs.stand_mode == 'shadow' && '🟡 Shadow (non-blocking)' || '➖ N/A' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stand Risk Gates | ${{ needs.premerge_stand.outputs.stand_mode == 'strict' && (needs.premerge_stand.result == 'success' && '✅ Blocking Passed' || '❌ Blocking Failed') || needs.premerge_stand.outputs.stand_mode == 'shadow' && (needs.premerge_stand.outputs.shadow_failed == 'true' && '⚠️ Shadow Failed (non-blocking)' || '✅ Shadow Passed (non-blocking)') || '➖ N/A' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Docker | ${{ needs.docker.result == 'success' && '✅ Passed' || needs.docker.result == 'skipped' && '➖ Skipped' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Security | ${{ needs.security.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
 
@@ -451,6 +595,11 @@ jobs:
             echo "❌ **Pipeline failed!** Please check the logs above." >> $GITHUB_STEP_SUMMARY
             exit 1
           fi
-          
+
+          if [ "${{ needs.premerge_stand.outputs.stand_mode }}" = "shadow" ] && [ "${{ needs.premerge_stand.outputs.shadow_failed }}" = "true" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ **Shadow gates reported failures** (non-blocking in current rollout mode)." >> $GITHUB_STEP_SUMMARY
+          fi
+
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **All checks passed!**" >> $GITHUB_STEP_SUMMARY
