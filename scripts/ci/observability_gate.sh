@@ -35,6 +35,22 @@ metric_sum() {
   ' "$file"
 }
 
+metric_sum_with_label() {
+  local metric="$1"
+  local label_fragment="$2"
+  local file="$3"
+  awk -v m="$metric" -v lf="$label_fragment" '
+    $1 ~ ("^" m "(\\{|$)") && index($1, lf) > 0 { sum += $2; found = 1 }
+    END {
+      if (!found) {
+        print "0"
+      } else {
+        printf "%.6f", sum
+      }
+    }
+  ' "$file"
+}
+
 require_metric() {
   local metric="$1"
   local file="$2"
@@ -77,6 +93,7 @@ PROM_READY_TIMEOUT=${PROM_READY_TIMEOUT:-60}
 PROM_SCRAPE_TIMEOUT=${PROM_SCRAPE_TIMEOUT:-45}
 METRICS_SETTLE_TIMEOUT=${METRICS_SETTLE_TIMEOUT:-20}
 METRICS_SETTLE_INTERVAL=${METRICS_SETTLE_INTERVAL:-1}
+CHECK_OUTBOX_ATTEMPTS=${CHECK_OUTBOX_ATTEMPTS:-1}
 
 METRICS_FILE=${METRICS_FILE:-/tmp/oms-metrics.prom}
 
@@ -107,6 +124,9 @@ required_metrics=(
   "oms_saga_duration_seconds_count"
   "oms_timeline_events_total"
   "oms_outbox_events_total"
+  "oms_outbox_publish_attempts_total"
+  "oms_outbox_pending_records"
+  "oms_outbox_oldest_pending_age_seconds"
 )
 
 if [[ "$fail" -eq 0 ]]; then
@@ -174,6 +194,36 @@ if [[ "$fail" -eq 0 ]]; then
   fi
   if float_lt "$active_sagas" "0"; then
     echo "oms_active_sagas is negative ($active_sagas), investigate saga gauge consistency"
+  fi
+fi
+
+if [[ "$fail" -eq 0 && "$CHECK_OUTBOX_ATTEMPTS" = "1" ]]; then
+  outbox_sent=$(metric_sum_with_label "oms_outbox_publish_attempts_total" 'result="sent"' "$METRICS_FILE")
+  outbox_failed=$(metric_sum_with_label "oms_outbox_publish_attempts_total" 'result="failed"' "$METRICS_FILE")
+  outbox_dlq_failed=$(metric_sum_with_label "oms_outbox_publish_attempts_total" 'result="dlq_failed"' "$METRICS_FILE")
+  outbox_retry_error=$(metric_sum_with_label "oms_outbox_publish_attempts_total" 'result="retry_error"' "$METRICS_FILE")
+  outbox_pending=$(metric_sum "oms_outbox_pending_records" "$METRICS_FILE")
+  outbox_oldest_age=$(metric_sum "oms_outbox_oldest_pending_age_seconds" "$METRICS_FILE")
+
+  echo "Outbox publish counters"
+  echo "outbox_sent:       $outbox_sent"
+  echo "outbox_failed:     $outbox_failed"
+  echo "outbox_dlq_failed: $outbox_dlq_failed"
+  echo "outbox_retry_error:$outbox_retry_error"
+  echo "outbox_pending:    $outbox_pending"
+  echo "outbox_oldest_age: $outbox_oldest_age"
+
+  if ! float_gt "$outbox_sent" "0"; then
+    echo "outbox sent attempts must be > 0"
+    fail=1
+  fi
+  if float_gt "$outbox_failed" "0"; then
+    echo "outbox failed attempts must be 0"
+    fail=1
+  fi
+  if float_gt "$outbox_dlq_failed" "0"; then
+    echo "outbox dlq_failed attempts must be 0"
+    fail=1
   fi
 fi
 
