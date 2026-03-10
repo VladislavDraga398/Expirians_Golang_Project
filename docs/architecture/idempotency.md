@@ -2,13 +2,13 @@
 
 > Обеспечение идемпотентности операций
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-14 | **Статус:** In progress
+**Версия:** v2.4 | **Обновлено:** 2026-02-23 | **Статус:** Implemented in core
 
 ---
 
 ## TL;DR
-- Целевая модель: все мутации требуют `Idempotency-Key`; повтор отдаёт тот же ответ/код.
-- Хранение: таблица `idempotency_keys` + опциональный кэш; TTL 24–72 ч.
+- Текущая модель: все мутации требуют `Idempotency-Key`; повтор отдаёт тот же ответ/код.
+- Хранение: таблица `idempotency_keys`; runtime TTL фиксирован `24h`.
 - Конфликт ключа с другим `request_hash` → `AlreadyExists`/`InvalidArgument`.
 - Идемпотентность событий — через inbox/`processed_events` на потребителе.
 - Текущий runtime-статус: storage-layer (memory + postgres) реализован, обязательная проверка `idempotency-key` включена для mutating gRPC RPC (`CreateOrder`, `PayOrder`, `CancelOrder`, `RefundOrder`).
@@ -29,7 +29,8 @@
 5. Повтор: `processing` → 425/409; `done` → сохранить ответ; `failed` → вернуть ошибку.
 
 ## TTL и очистка
-- TTL 24–72 ч (конфиг); cron удаляет просроченные записи.
+- Runtime TTL для idempotency record: `24h`.
+- Cleanup worker удаляет просроченные записи по конфигу (`OMS_IDEMPOTENCY_CLEANUP_INTERVAL`, `OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE`).
 - После TTL ключ считается новым.
 
 ## gRPC и события
@@ -37,8 +38,8 @@
 - Потребители событий ведут `processed_events` для дедупликации.
 
 ## Метрики/алерты
-- `idempotency_conflicts_total`, `idempotency_processing_gauge`, `idempotency_retries_total`.
-- Алерт при росте конфликтов или «зависших» `processing`.
+- `oms_idempotency_cleanup_runs_total{result}`, `oms_idempotency_cleanup_deleted_total`, `oms_idempotency_cleanup_last_deleted`.
+- Дополнительно для конфликтов отслеживаются gRPC коды `AlreadyExists`/`Aborted` на mutating RPC.
 
 ## Альтернативы
 - Хранить только статус (без ответа) — проще, но нельзя переиспользовать response.

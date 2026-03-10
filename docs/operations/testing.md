@@ -2,7 +2,7 @@
 
 > Стратегия тестирования OMS
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.3 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
 ---
 
@@ -37,6 +37,6 @@
 - Локальная единая точка входа для запуска тестов: `test/run/*` (`all.sh`, `unit.sh`, `integration.sh`, `race.sh`).
 - `premerge_stand` поднимает стенд через Docker Compose (`oms`, `zookeeper`, `kafka`, `prometheus`).
 - `migration_check` проверяет SQL-модель через последовательность `up -> down(1) -> up` и запускает PostgreSQL integration tests для idempotency storage-path.
-- Этапы `premerge_stand`: lifecycle smoke (`scripts/saga_load.sh`), observability gate (`scripts/ci/observability_gate.sh`), load gate (`scripts/ci/load_gate.sh`, запускает `cmd/loadtest`).
+- Этапы `premerge_stand`: lifecycle smoke (`scripts/saga_load.sh`), observability gate (`scripts/ci/observability_gate.sh`), load gate (`scripts/ci/load_gate.sh`, запускает `cmd/loadtest` в режиме `create-pay-cancel`).
 - Профиль стенда выбирается по целевой ветке PR (`github.base_ref`): `dev` использует быстрый gate для ежедневной разработки, `main`/`master` использует более строгий release gate.
 - Артефакты: coverage, логи стенда на фейлах, контейнерные образы.

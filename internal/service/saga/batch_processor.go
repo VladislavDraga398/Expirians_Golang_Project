@@ -14,8 +14,9 @@ type BatchProcessor struct {
 	logger       *log.Entry
 
 	// Конфигурация батчинга
-	batchSize    int
-	flushTimeout time.Duration
+	batchSize      int
+	flushTimeout   time.Duration
+	maxParallelOps int
 
 	// Внутренние каналы и состояние
 	startCh  chan string
@@ -49,14 +50,15 @@ func NewBatchProcessor(orchestrator Orchestrator, logger *log.Entry) *BatchProce
 	}
 
 	return &BatchProcessor{
-		orchestrator: orchestrator,
-		logger:       logger,
-		batchSize:    10,                     // Обрабатываем по 10 операций за раз
-		flushTimeout: 100 * time.Millisecond, // Или каждые 100мс
-		startCh:      make(chan string, 100),
-		cancelCh:     make(chan cancelRequest, 100),
-		refundCh:     make(chan refundRequest, 100),
-		stopCh:       make(chan struct{}),
+		orchestrator:   orchestrator,
+		logger:         logger,
+		batchSize:      10,                     // Обрабатываем по 10 операций за раз
+		flushTimeout:   100 * time.Millisecond, // Или каждые 100мс
+		maxParallelOps: 8,
+		startCh:        make(chan string, 100),
+		cancelCh:       make(chan cancelRequest, 100),
+		refundCh:       make(chan refundRequest, 100),
+		stopCh:         make(chan struct{}),
 	}
 }
 
@@ -209,16 +211,9 @@ func (bp *BatchProcessor) flushStartBatch() {
 
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing start batch")
 
-	// Обрабатываем все заказы в батче параллельно
-	var wg sync.WaitGroup
-	for _, orderID := range batch {
-		wg.Add(1)
-		go func(id string) {
-			defer wg.Done()
-			bp.orchestrator.Start(id)
-		}(orderID)
-	}
-	wg.Wait()
+	bp.processInParallel(len(batch), func(index int) {
+		bp.orchestrator.Start(batch[index])
+	})
 }
 
 func (bp *BatchProcessor) flushCancelBatch() {
@@ -233,15 +228,10 @@ func (bp *BatchProcessor) flushCancelBatch() {
 
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing cancel batch")
 
-	var wg sync.WaitGroup
-	for _, req := range batch {
-		wg.Add(1)
-		go func(r cancelRequest) {
-			defer wg.Done()
-			bp.orchestrator.Cancel(r.orderID, r.reason)
-		}(req)
-	}
-	wg.Wait()
+	bp.processInParallel(len(batch), func(index int) {
+		req := batch[index]
+		bp.orchestrator.Cancel(req.orderID, req.reason)
+	})
 }
 
 func (bp *BatchProcessor) flushRefundBatch() {
@@ -256,13 +246,36 @@ func (bp *BatchProcessor) flushRefundBatch() {
 
 	bp.logger.WithField("batch_size", len(batch)).Debug("Processing refund batch")
 
-	var wg sync.WaitGroup
-	for _, req := range batch {
-		wg.Add(1)
-		go func(r refundRequest) {
-			defer wg.Done()
-			bp.orchestrator.Refund(r.orderID, r.amountMinor, r.reason)
-		}(req)
+	bp.processInParallel(len(batch), func(index int) {
+		req := batch[index]
+		bp.orchestrator.Refund(req.orderID, req.amountMinor, req.reason)
+	})
+}
+
+func (bp *BatchProcessor) processInParallel(size int, processFn func(index int)) {
+	if size == 0 {
+		return
 	}
+
+	limit := bp.maxParallelOps
+	if limit <= 0 {
+		limit = 1
+	}
+	if limit > size {
+		limit = size
+	}
+
+	semaphore := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for idx := 0; idx < size; idx++ {
+		wg.Add(1)
+		semaphore <- struct{}{}
+		go func(index int) {
+			defer wg.Done()
+			defer func() { <-semaphore }()
+			processFn(index)
+		}(idx)
+	}
+
 	wg.Wait()
 }

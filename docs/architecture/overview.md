@@ -1,59 +1,66 @@
 # Architecture
 
-> Общая архитектура Order Management System
+> Актуальная архитектурная рамка OMS на этапе перехода к BoostMarket
 
-**Версия:** v2.0 | **Обновлено:** 2025-10-01 | **Статус:** Актуально
+**Версия:** v3.2 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
 ## TL;DR
-- OMS — бэкенд для жизненного цикла заказа с явной оркестрацией саг.
-- Синхронно — gRPC; асинхронно — события через брокер, публикация из Outbox.
-- Чистые слои: Transport → Application → Domain → Infrastructure.
+- Базовая архитектура: **модульный монолит** (не микросервисная декомпозиция на этом этапе).
+- Ядро OMS стабилизировано: lifecycle заказа + saga + outbox + idempotency + observability.
+- Delivery-функции (курьеры/гео/слоты/рейтинг/ценообразование) добавляются модульно в тот же runtime.
+- Внешние geo/weather/traffic интеграции пока в roadmap, не в текущем runtime-path.
 
-## Компоненты
-- `OrderService`: публичный gRPC API, оркестратор саг, доступ к БД, Outbox.
-- `InventoryService`: резерв/освобождение стока (внутренний или внешний).
-- `PaymentService`: Hold/Capture/Refund (внутренние адаптеры к провайдерам).
-- `NotificationService`: потребляет события и уведомляет пользователей/системы.
-- Реляционная БД: транзакционное хранилище (orders, items, payments, reservations, outbox, idempotency).
-- Брокер сообщений: распределение доменных событий.
+## Архитектурный контур
 
-## Коммуникации
-- Синхронно (внутри/снаружи): gRPC с дедлайнами, ретраями (только идемпотентные), circuit breaker.
-- Асинхронно (межсервисно): доменные события через брокер (at-least-once; потребители — идемпотентные).
+1. Transport layer:
+- gRPC API (`OrderService` и последующие delivery API).
 
-## Слои
-- Transport (gRPC)
-- Application (оркестратор, use-cases)
-- Domain (агрегаты, инварианты)
-- Infrastructure (БД, брокер, Outbox, репозитории)
+2. Application layer:
+- Оркестрация use-case и saga-процессов.
+- Фоновые воркеры (outbox, idempotency cleanup).
+- gRPC `CourierService` для курьеров/зон/слотов/capabilities/рейтинга.
 
-## Диаграмма
+3. Domain layer:
+- Агрегаты и инварианты заказа.
+- Новые delivery-сущности: курьеры, зоны, слоты, транспортные ограничения.
+
+4. Infrastructure layer:
+- PostgreSQL (основное runtime-хранилище), in-memory (локальный режим/тесты).
+- Kafka для доменных событий и DLQ.
+- Prometheus/Grafana для метрик и эксплуатационного контроля.
+
+## Диаграмма (текущая фаза)
+
 ```mermaid
 flowchart LR
-  Client -->|gRPC| OrderService
-  OrderService -->|SQL| DB[(Relational DB)]
-  OrderService -->|Publish Outbox| Broker[(Message Broker)]
-  OrderService -->|gRPC| InventoryService
-  OrderService -->|gRPC| PaymentService
-  Broker -->|Events| NotificationService
+  Client -->|gRPC| OMS["OMS Runtime (modular monolith)"]
+  OMS -->|SQL| DB[(PostgreSQL)]
+  OMS -->|Outbox publish| Kafka[(Kafka)]
+  OMS -->|Metrics| Prom[(Prometheus)]
+  OMS -->|Dashboards| Grafana[(Grafana)]
+  OMS -->|Planned adapters| Ext["External APIs (maps/weather/traffic)"]
 ```
 
-## Ключевые решения
-- Оркестрация саг с компенсациями (явные шаги, управляемые ошибки).
-- Transactional Outbox → публикация событий с ретраями и DLQ.
-- Идемпотентность: `Idempotency-Key` в gRPC metadata; дедуп на consumer.
-- Optimistic Locking (`orders.version`) против гонок записей.
+## Почему модульный монолит сейчас
 
-## Альтернативы (кратко)
-- REST вместо gRPC — проще онбординг внешних, менее строгий контракт.
-- NATS JetStream вместо Kafka/Redpanda — проще оперировать, меньше возможностей реплея.
-- Workflow-движок (Temporal) — мощно для длительных процессов, но сложнее эксплуатация.
+- Быстрее доставка бизнес-фич без overhead распределённой системы.
+- Проще эксплуатация и дебаг в ранней стадии стартапа.
+- Меньше операционных рисков при активной смене бизнес-правил.
+- Переход к сервисной декомпозиции возможен позже, после стабилизации доменных границ.
 
-## Быстрая навигация
-- Подробности по слоям и шагам саг: `docs/saga.md`
-- Модель данных и статусы: `docs/data-model.md`
-- Контракты gRPC и ошибки: `docs/api.md`
-- Outbox и гарантии доставки: `docs/outbox.md`
+## Инварианты архитектуры
 
+- Нет несанкционированных breaking-изменений DB/API.
+- Для событий сохраняется at-least-once семантика + идемпотентность обработчиков.
+- Любые внешние интеграции проходят через адаптеры с timeout/retry/circuit breaker.
+- Источник истины для готовности — CI pipeline и воспроизводимые проверки.
+
+## Связанные документы
+
+- Roadmap: `docs/roadmap.md`
+- Saga: `docs/architecture/saga.md`
+- Idempotency: `docs/architecture/idempotency.md`
+- Transactional Outbox: `docs/architecture/outbox.md`
+- Runbooks: `docs/operations/runbooks.md`

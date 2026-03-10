@@ -4,21 +4,35 @@ services:
     build:
       context: .
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
-      - OMS_GRPC_ADDR=${OMS_GRPC_ADDR}
-      - OMS_METRICS_ADDR=${OMS_METRICS_ADDR}
+      - OMS_GRPC_ADDR=${OMS_GRPC_ADDR:-:50051}
+      - OMS_METRICS_ADDR=${OMS_METRICS_ADDR:-:9090}
       - OMS_STORAGE_DRIVER=${OMS_STORAGE_DRIVER:-memory}
       - OMS_POSTGRES_DSN=${OMS_POSTGRES_DSN:-postgres://oms:oms@postgres:5432/oms?sslmode=disable}
       - OMS_POSTGRES_AUTO_MIGRATE=${OMS_POSTGRES_AUTO_MIGRATE:-true}
+      - OMS_ALLOW_MOCK_INTEGRATIONS=${OMS_ALLOW_MOCK_INTEGRATIONS:-false}
+      - OMS_OUTBOX_POLL_INTERVAL=${OMS_OUTBOX_POLL_INTERVAL:-1s}
+      - OMS_OUTBOX_BATCH_SIZE=${OMS_OUTBOX_BATCH_SIZE:-100}
+      - OMS_OUTBOX_MAX_ATTEMPTS=${OMS_OUTBOX_MAX_ATTEMPTS:-3}
+      - OMS_OUTBOX_RETRY_DELAY=${OMS_OUTBOX_RETRY_DELAY:-50ms}
+      - OMS_OUTBOX_MAX_PENDING=${OMS_OUTBOX_MAX_PENDING:-10000}
+      - OMS_IDEMPOTENCY_CLEANUP_INTERVAL=${OMS_IDEMPOTENCY_CLEANUP_INTERVAL:-10m}
+      - OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE=${OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE:-500}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - KAFKA_BROKERS=${KAFKA_BROKERS:-kafka:9092}
     ports:
-      - "${OMS_GRPC_PORT}:${OMS_GRPC_PORT}"
-      - "${OMS_METRICS_PORT}:${OMS_METRICS_PORT}"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:${OMS_GRPC_PORT:-50051}:${OMS_GRPC_PORT:-50051}"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:${OMS_METRICS_PORT:-9090}:${OMS_METRICS_PORT:-9090}"
     restart: unless-stopped
     networks:
       - monitoring
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -36,7 +50,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:-oms}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-oms}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -49,14 +63,15 @@ services:
       retries: 5
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702
     container_name: prometheus
     volumes:
       - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
     command:
       - --config.file=/etc/prometheus/prometheus.yml
     ports:
-      - "${PROM_UI_PORT}:9090"  # Prometheus UI
+      - "${HOST_BIND_ADDR:-127.0.0.1}:${PROM_UI_PORT:-9091}:9090"  # Prometheus UI
     restart: unless-stopped
     networks:
       - monitoring
@@ -69,13 +84,13 @@ services:
       retries: 5
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana@sha256:9e1e77ade304069aee3196e9a4f210830e96e80ce9a2640891eccc324b152faf
     container_name: grafana
     ports:
-      - "${GRAFANA_UI_PORT}:3000"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:${GRAFANA_UI_PORT:-3000}:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
     volumes:
       - ./deploy/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
       - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
@@ -99,7 +114,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
-      - "2181:2181"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:2181:2181"
     networks:
       - monitoring
     healthcheck:
@@ -115,8 +130,8 @@ services:
       zookeeper:
         condition: service_healthy
     ports:
-      - "9092:9092"
-      - "9093:9093"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:9092:9092"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -135,13 +150,13 @@ services:
       retries: 5
 
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui@sha256:8f2ff02d64b0a7a2b71b6b3b3148b85f66d00ec20ad40c30bdcd415d46d31818
     container_name: kafka-ui
     depends_on:
       kafka:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "${HOST_BIND_ADDR:-127.0.0.1}:8080:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092

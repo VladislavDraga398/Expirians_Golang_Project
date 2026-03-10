@@ -39,6 +39,7 @@ Thumbs.db
 
 # Log files
 *.log
+postgres-migration-logs.txt
 
 # Environment variables
 .env

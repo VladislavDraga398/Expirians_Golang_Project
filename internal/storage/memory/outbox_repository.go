@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -23,6 +24,8 @@ type outboxRepositoryInMemory struct {
 	mu      sync.RWMutex
 	records map[string]*outboxRecord
 }
+
+const outboxProcessingLease = 2 * time.Minute
 
 // NewOutboxRepository создаёт in-memory реализацию outbox.
 func NewOutboxRepository() *outboxRepositoryInMemory {
@@ -48,20 +51,39 @@ func (r *outboxRepositoryInMemory) Enqueue(msg domain.OutboxMessage) (domain.Out
 	return msg, nil
 }
 
-// PullPending возвращает до limit сообщений со статусом `pending`.
+// PullPending атомарно claim'ит сообщения в обработку и возвращает до limit записей backlog.
+// Также повторно выдаёт "зависшие" processing-записи после истечения lease.
 func (r *outboxRepositoryInMemory) PullPending(limit int) ([]domain.OutboxMessage, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if limit <= 0 {
 		limit = 100
 	}
 
+	now := time.Now().UTC()
+	staleBefore := now.Add(-outboxProcessingLease)
+	ids := make([]string, 0, len(r.records))
+	for id := range r.records {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		left := r.records[ids[i]]
+		right := r.records[ids[j]]
+		if !left.createdAt.Equal(right.createdAt) {
+			return left.createdAt.Before(right.createdAt)
+		}
+		return ids[i] < ids[j]
+	})
+
 	result := make([]domain.OutboxMessage, 0, limit)
-	for _, rec := range r.records {
-		if rec.status != "pending" {
+	for _, id := range ids {
+		rec := r.records[id]
+		if rec.status != "pending" && (rec.status != "processing" || rec.updatedAt.After(staleBefore)) {
 			continue
 		}
+		rec.status = "processing"
+		rec.updatedAt = now
 		result = append(result, rec.msg)
 		if len(result) >= limit {
 			break
@@ -78,7 +100,7 @@ func (r *outboxRepositoryInMemory) Stats() (domain.OutboxStats, error) {
 
 	stats := domain.OutboxStats{}
 	for _, rec := range r.records {
-		if rec.status != "pending" {
+		if rec.status != "pending" && rec.status != "processing" {
 			continue
 		}
 		stats.PendingCount++

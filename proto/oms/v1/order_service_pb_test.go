@@ -29,6 +29,60 @@ func TestOrderStatusGeneratedHelpers(t *testing.T) {
 	}
 }
 
+func TestCourierVehicleTypeGeneratedHelpers(t *testing.T) {
+	s := CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE
+	if got := s.Enum(); got == nil || *got != s {
+		t.Fatalf("Enum() mismatch: got %v want %v", got, s)
+	}
+	if s.String() == "" {
+		t.Fatalf("String() must not be empty")
+	}
+	if s.Type() == nil {
+		t.Fatalf("Type() must not be nil")
+	}
+	if s.Descriptor() == nil {
+		t.Fatalf("Descriptor() must not be nil")
+	}
+	_ = s.Number()
+	_, _ = s.EnumDescriptor()
+}
+
+func TestCourierSlotStatusGeneratedHelpers(t *testing.T) {
+	s := CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED
+	if got := s.Enum(); got == nil || *got != s {
+		t.Fatalf("Enum() mismatch: got %v want %v", got, s)
+	}
+	if s.String() == "" {
+		t.Fatalf("String() must not be empty")
+	}
+	if s.Type() == nil {
+		t.Fatalf("Type() must not be nil")
+	}
+	if s.Descriptor() == nil {
+		t.Fatalf("Descriptor() must not be nil")
+	}
+	_ = s.Number()
+	_, _ = s.EnumDescriptor()
+}
+
+func TestCourierRatingTagGeneratedHelpers(t *testing.T) {
+	s := CourierRatingTag_COURIER_RATING_TAG_ON_TIME
+	if got := s.Enum(); got == nil || *got != s {
+		t.Fatalf("Enum() mismatch: got %v want %v", got, s)
+	}
+	if s.String() == "" {
+		t.Fatalf("String() must not be empty")
+	}
+	if s.Type() == nil {
+		t.Fatalf("Type() must not be nil")
+	}
+	if s.Descriptor() == nil {
+		t.Fatalf("Descriptor() must not be nil")
+	}
+	_ = s.Number()
+	_, _ = s.EnumDescriptor()
+}
+
 func TestGeneratedMessageHelpers(t *testing.T) {
 	messages := []any{
 		&Money{Currency: "USD", AmountMinor: 100},
@@ -47,6 +101,95 @@ func TestGeneratedMessageHelpers(t *testing.T) {
 		&CancelOrderResponse{OrderId: "order-1", Status: OrderStatus_ORDER_STATUS_CANCELED},
 		&RefundOrderRequest{OrderId: "order-1", Amount: &Money{Currency: "USD", AmountMinor: 50}, Reason: "partial"},
 		&RefundOrderResponse{OrderId: "order-1", Status: OrderStatus_ORDER_STATUS_REFUNDED},
+		&CourierZoneInput{ZoneId: "msk-cao-arbat", IsPrimary: true},
+		&CourierZone{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1},
+		&Courier{
+			Id:          "courier-1",
+			Phone:       "+79990000001",
+			FirstName:   "Ivan",
+			LastName:    "Petrov",
+			VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE,
+			IsActive:    true,
+			Zones:       []*CourierZone{{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1}},
+		},
+		&CourierSlot{
+			Id:            "slot-1",
+			CourierId:     "courier-1",
+			SlotStartUnix: 10,
+			SlotEndUnix:   20,
+			DurationHours: 4,
+			Status:        CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED,
+		},
+		&CourierVehicleCapability{
+			VehicleType:      CourierVehicleType_COURIER_VEHICLE_TYPE_CAR,
+			MaxWeightGrams:   25000,
+			MaxVolumeCm3:     250000,
+			MaxOrdersPerTrip: 10,
+			UpdatedAtUnix:    1,
+		},
+		&RegisterCourierRequest{
+			CourierId:   "courier-1",
+			Phone:       "+79990000001",
+			FirstName:   "Ivan",
+			LastName:    "Petrov",
+			VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE,
+			Zones:       []*CourierZoneInput{{ZoneId: "msk-cao-arbat", IsPrimary: true}},
+		},
+		&RegisterCourierResponse{Courier: &Courier{Id: "courier-1"}},
+		&GetCourierRequest{CourierId: "courier-1"},
+		&GetCourierResponse{Courier: &Courier{Id: "courier-1"}},
+		&ListCouriersByZoneRequest{ZoneId: "msk-cao-arbat", Limit: 10},
+		&ListCouriersByZoneResponse{Couriers: []*Courier{{Id: "courier-1"}}},
+		&ReplaceCourierZonesRequest{
+			CourierId: "courier-1",
+			Zones:     []*CourierZoneInput{{ZoneId: "msk-cao-arbat", IsPrimary: true}},
+		},
+		&ReplaceCourierZonesResponse{CourierId: "courier-1", Zones: []*CourierZone{{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1}}},
+		&CreateCourierSlotRequest{
+			CourierId:     "courier-1",
+			SlotStartUnix: 10,
+			SlotEndUnix:   20,
+			DurationHours: 4,
+		},
+		&CreateCourierSlotResponse{Slot: &CourierSlot{Id: "slot-1"}},
+		&ListCourierSlotsRequest{CourierId: "courier-1", FromUnix: 1, ToUnix: 2},
+		&ListCourierSlotsResponse{Slots: []*CourierSlot{{Id: "slot-1"}}},
+		&GetCourierVehicleCapabilityRequest{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR},
+		&GetCourierVehicleCapabilityResponse{
+			Capability: &CourierVehicleCapability{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000},
+		},
+		&ListCourierVehicleCapabilitiesRequest{},
+		&ListCourierVehicleCapabilitiesResponse{
+			Capabilities: []*CourierVehicleCapability{{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE, MaxWeightGrams: 10000}},
+		},
+		&SubmitCourierRatingRequest{
+			RatingId:  "rating-1",
+			CourierId: "courier-1",
+			Score:     5,
+			Tags:      []CourierRatingTag{CourierRatingTag_COURIER_RATING_TAG_ON_TIME},
+			Comment:   "Great",
+		},
+		&SubmitCourierRatingResponse{
+			RatingId:  "rating-1",
+			CourierId: "courier-1",
+		},
+		&GetCourierRatingSummaryRequest{
+			CourierId: "courier-1",
+		},
+		&CourierRatingSummary{
+			CourierId:       "courier-1",
+			RatingsCount:    2,
+			AverageScore:    4.5,
+			LowRatingsCount: 0,
+			Score_5Count:    1,
+			Score_4Count:    1,
+			OnTimeCount:     1,
+			PoliteCount:     1,
+			LastRatingUnix:  100,
+		},
+		&GetCourierRatingSummaryResponse{
+			Summary: &CourierRatingSummary{CourierId: "courier-1"},
+		},
 	}
 
 	for _, msg := range messages {

@@ -8,3 +8,4 @@
 - [Documentation Index](INDEX.md)
 - [Documentation Structure](STRUCTURE.md)
 - [Quick Start](quick-start.md)
+- [Tech Debt Register](decisions/tech-debt.md)

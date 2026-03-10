@@ -3,6 +3,7 @@ package grpcsvc
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -393,6 +394,17 @@ func TestUtilityHelpers(t *testing.T) {
 
 	if toProtoStatus(domain.OrderStatus("something-else")) != omsv1.OrderStatus_ORDER_STATUS_UNSPECIFIED {
 		t.Fatal("unknown status must map to ORDER_STATUS_UNSPECIFIED")
+	}
+}
+
+func TestGrpcCodeToInt32(t *testing.T) {
+	if got := grpcCodeToInt32(codes.FailedPrecondition); got != int32(codes.FailedPrecondition) {
+		t.Fatalf("unexpected conversion result: got=%d want=%d", got, int32(codes.FailedPrecondition))
+	}
+
+	overflowCode := codes.Code(uint32(math.MaxInt32) + 1)
+	if got := grpcCodeToInt32(overflowCode); got != int32(codes.Internal) {
+		t.Fatalf("overflow must fallback to INTERNAL: got=%d want=%d", got, int32(codes.Internal))
 	}
 }
 

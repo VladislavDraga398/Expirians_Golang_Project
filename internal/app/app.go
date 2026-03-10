@@ -11,7 +11,6 @@ import (
 	"time"
 
 	promgrpc "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -23,6 +22,7 @@ import (
 	healthcheck "github.com/vladislavdragonenkov/oms/internal/health"
 	"github.com/vladislavdragonenkov/oms/internal/messaging/kafka"
 	grpcsvc "github.com/vladislavdragonenkov/oms/internal/service/grpc"
+	idempotencysvc "github.com/vladislavdragonenkov/oms/internal/service/idempotency"
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	outboxsvc "github.com/vladislavdragonenkov/oms/internal/service/outbox"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
@@ -39,39 +39,51 @@ const (
 
 	storagePingTimeout      = 2 * time.Second
 	gracefulShutdownTimeout = 5 * time.Second
+	kafkaInitTimeout        = 30 * time.Second
+	kafkaInitRetryDelay     = time.Second
 )
 
 // Config описывает минимальные настройки запуска приложения.
 type Config struct {
-	GRPCAddr            string
-	MetricsAddr         string
-	StorageDriver       string
-	PostgresDSN         string
-	PostgresAutoMigrate bool
-	OutboxPollInterval  time.Duration
-	OutboxBatchSize     int
-	OutboxMaxAttempts   int
-	OutboxRetryDelay    time.Duration
-	OutboxMaxPending    int
+	GRPCAddr                    string
+	MetricsAddr                 string
+	StorageDriver               string
+	PostgresDSN                 string
+	PostgresAutoMigrate         bool
+	AllowMockIntegrations       bool
+	OutboxPollInterval          time.Duration
+	OutboxBatchSize             int
+	OutboxMaxAttempts           int
+	OutboxRetryDelay            time.Duration
+	OutboxMaxPending            int
+	IdempotencyCleanupInterval  time.Duration
+	IdempotencyCleanupBatchSize int
 }
 
 // DefaultConfig возвращает базовые адреса для gRPC и HTTP-метрик.
 func DefaultConfig() Config {
 	return Config{
-		GRPCAddr:            ":50051",
-		MetricsAddr:         ":9090",
-		StorageDriver:       StorageDriverMemory,
-		PostgresAutoMigrate: true,
-		OutboxPollInterval:  time.Second,
-		OutboxBatchSize:     100,
-		OutboxMaxAttempts:   3,
-		OutboxRetryDelay:    50 * time.Millisecond,
-		OutboxMaxPending:    10000,
+		GRPCAddr:                    ":50051",
+		MetricsAddr:                 ":9090",
+		StorageDriver:               StorageDriverMemory,
+		PostgresAutoMigrate:         true,
+		AllowMockIntegrations:       false,
+		OutboxPollInterval:          time.Second,
+		OutboxBatchSize:             100,
+		OutboxMaxAttempts:           3,
+		OutboxRetryDelay:            50 * time.Millisecond,
+		OutboxMaxPending:            10000,
+		IdempotencyCleanupInterval:  10 * time.Minute,
+		IdempotencyCleanupBatchSize: 500,
 	}
 }
 
 func Run(ctx context.Context, cfg Config) error {
 	logger := log.WithField("component", "app")
+
+	if err := validateMockIntegrationsPolicy(cfg); err != nil {
+		return err
+	}
 
 	runtimeDeps, err := initRuntimeDependencies(ctx, cfg, logger)
 	if err != nil {
@@ -86,103 +98,92 @@ func Run(ctx context.Context, cfg Config) error {
 		}
 	}()
 
-	repo := runtimeDeps.repo
-	outboxRepo := runtimeDeps.outboxRepo
-	timelineRepo := runtimeDeps.timelineRepo
-
-	// Для локальной разработки используются mock-сервисы.
-	inventorySvc := inventory.NewMockService()
-	paymentSvc := payment.NewMockService()
+	deps := newAppDependencies(runtimeDeps, logger)
 
 	// Kafka producer опционален: если брокер недоступен, сервис продолжает работу.
 	var kafkaProducer *kafka.Producer
 	var outboxWorkerCancel context.CancelFunc
 	var outboxWorkerDone chan struct{}
+	var idempotencyCleanupCancel context.CancelFunc
+	var idempotencyCleanupDone chan struct{}
 	var outboxChecker healthcheck.Checker
 	var sagaOrchestrator saga.Orchestrator
+
+	if runtimeDeps.idempotencyRepo != nil && cfg.IdempotencyCleanupInterval > 0 {
+		cleanupWorker := idempotencysvc.NewCleanupWorker(
+			runtimeDeps.idempotencyRepo,
+			idempotencysvc.WithLogger(logger.WithField("component", "idempotency-cleanup-worker")),
+			idempotencysvc.WithInterval(cfg.IdempotencyCleanupInterval),
+			idempotencysvc.WithBatchSize(cfg.IdempotencyCleanupBatchSize),
+		)
+		cleanupCtx, cleanupCancel := context.WithCancel(ctx)
+		idempotencyCleanupCancel = cleanupCancel
+		idempotencyCleanupDone = make(chan struct{})
+		go func() {
+			defer close(idempotencyCleanupDone)
+			cleanupWorker.Run(cleanupCtx)
+		}()
+	}
 
 	rawKafkaBrokers := os.Getenv("KAFKA_BROKERS")
 	brokers := parseKafkaBrokers(rawKafkaBrokers)
 	if strings.TrimSpace(rawKafkaBrokers) != "" && len(brokers) == 0 {
-		logger.Warn("KAFKA_BROKERS is set but no valid broker addresses were parsed")
+		return fmt.Errorf("KAFKA_BROKERS is set but no valid broker addresses were parsed")
 	}
 	if len(brokers) > 0 {
-		producer, err := kafka.NewProducer(brokers)
+		producer, err := initKafkaProducerWithRetry(ctx, brokers, logger, kafkaInitTimeout, kafkaInitRetryDelay)
 		if err != nil {
-			logger.WithError(err).Warn("failed to create kafka producer, continuing without kafka")
-		} else {
-			kafkaProducer = producer
-			logger.WithField("brokers", brokers).Info("kafka producer initialized")
-
-			outboxWorker := outboxsvc.NewWorker(
-				outboxRepo,
-				kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicOrderEvents),
-				outboxsvc.WithDLQPublisher(kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicDeadLetterQueue)),
-				outboxsvc.WithLogger(logger.WithField("component", "outbox-worker")),
-				outboxsvc.WithPollInterval(cfg.OutboxPollInterval),
-				outboxsvc.WithBatchSize(cfg.OutboxBatchSize),
-				outboxsvc.WithMaxAttempts(cfg.OutboxMaxAttempts),
-				outboxsvc.WithRetryBaseDelay(cfg.OutboxRetryDelay),
-			)
-			workerCtx, workerCancel := context.WithCancel(ctx)
-			outboxWorkerCancel = workerCancel
-			outboxWorkerDone = make(chan struct{})
-			go func() {
-				defer close(outboxWorkerDone)
-				outboxWorker.Run(workerCtx)
-			}()
-
-			outboxChecker = healthcheck.NewSimpleChecker("outbox", func() error {
-				stats, err := outboxRepo.Stats()
-				if err != nil {
-					return err
-				}
-				if cfg.OutboxMaxPending > 0 && stats.PendingCount > cfg.OutboxMaxPending {
-					return fmt.Errorf("outbox backlog %d exceeds threshold %d", stats.PendingCount, cfg.OutboxMaxPending)
-				}
-				return nil
-			})
-
-			// Создаём orchestrator с Kafka
-			sagaOrchestrator = saga.NewOrchestratorWithKafka(
-				repo,
-				outboxRepo,
-				timelineRepo,
-				inventorySvc,
-				paymentSvc,
-				kafkaProducer,
-				logger,
-			)
+			return err
 		}
+
+		kafkaProducer = producer
+		logger.WithField("brokers", brokers).Info("kafka producer initialized")
+
+		outboxWorker := outboxsvc.NewWorker(
+			deps.OutboxRepo,
+			kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicOrderEvents),
+			outboxsvc.WithDLQPublisher(kafka.NewOutboxPublisher(kafkaProducer, kafka.TopicDeadLetterQueue)),
+			outboxsvc.WithLogger(logger.WithField("component", "outbox-worker")),
+			outboxsvc.WithPollInterval(cfg.OutboxPollInterval),
+			outboxsvc.WithBatchSize(cfg.OutboxBatchSize),
+			outboxsvc.WithMaxAttempts(cfg.OutboxMaxAttempts),
+			outboxsvc.WithRetryBaseDelay(cfg.OutboxRetryDelay),
+		)
+		workerCtx, workerCancel := context.WithCancel(ctx)
+		outboxWorkerCancel = workerCancel
+		outboxWorkerDone = make(chan struct{})
+		go func() {
+			defer close(outboxWorkerDone)
+			outboxWorker.Run(workerCtx)
+		}()
+
+		outboxChecker = healthcheck.NewSimpleChecker("outbox", func() error {
+			stats, err := deps.OutboxRepo.Stats()
+			if err != nil {
+				return err
+			}
+			if cfg.OutboxMaxPending > 0 && stats.PendingCount > cfg.OutboxMaxPending {
+				return fmt.Errorf("outbox backlog %d exceeds threshold %d", stats.PendingCount, cfg.OutboxMaxPending)
+			}
+			return nil
+		})
+
+		sagaOrchestrator = createOrchestrator(deps, kafkaProducer)
 	}
 
 	// Если Kafka не настроен, используем обычный orchestrator
 	if sagaOrchestrator == nil {
-		sagaOrchestrator = saga.NewOrchestrator(
-			repo,
-			outboxRepo,
-			timelineRepo,
-			inventorySvc,
-			paymentSvc,
-			logger,
-		)
+		sagaOrchestrator = createOrchestrator(deps, nil)
 	}
 
 	serviceLogger := logger.WithField("layer", "grpc")
-	orderService := grpcsvc.NewOrderService(repo, timelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
-	grpcMetrics := promgrpc.NewServerMetrics()
+	orderService := grpcsvc.NewOrderService(deps.Repo, deps.TimelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
+	courierService := grpcsvc.NewCourierService(deps.CourierRepo, serviceLogger.WithField("service", "courier"))
+	grpcMetrics := promgrpc.DefaultServerMetrics
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))
-	if err := prometheus.Register(grpcMetrics); err != nil {
-		if are, ok := err.(prometheus.AlreadyRegisteredError); ok {
-			if existing, ok2 := are.ExistingCollector.(*promgrpc.ServerMetrics); ok2 {
-				grpcMetrics = existing
-			}
-		} else {
-			logger.WithError(err).Warn("failed to register grpc metrics")
-		}
-	}
 
 	omsv1.RegisterOrderServiceServer(grpcServer, orderService)
+	omsv1.RegisterCourierServiceServer(grpcServer, courierService)
 	grpcMetrics.InitializeMetrics(grpcServer)
 
 	// Register reflection service for grpcurl and load testing tools
@@ -230,8 +231,8 @@ func Run(ctx context.Context, cfg Config) error {
 			grpcServer.Stop()
 		}
 		shutdownOrderService(orderService, logger)
-		shutdownHTTP(metricsSrv, logger)
 		shutdownOutboxWorker(outboxWorkerCancel, outboxWorkerDone, logger)
+		shutdownIdempotencyCleanupWorker(idempotencyCleanupCancel, idempotencyCleanupDone, logger)
 
 		closeKafkaProducer(kafkaProducer, logger)
 
@@ -240,6 +241,7 @@ func Run(ctx context.Context, cfg Config) error {
 		shutdownOrderService(orderService, logger)
 		shutdownHTTP(metricsSrv, logger)
 		shutdownOutboxWorker(outboxWorkerCancel, outboxWorkerDone, logger)
+		shutdownIdempotencyCleanupWorker(idempotencyCleanupCancel, idempotencyCleanupDone, logger)
 		closeKafkaProducer(kafkaProducer, logger)
 
 		if errors.Is(err, grpc.ErrServerStopped) {
@@ -249,8 +251,34 @@ func Run(ctx context.Context, cfg Config) error {
 	}
 }
 
+func validateMockIntegrationsPolicy(cfg Config) error {
+	driver := normalizedStorageDriver(cfg.StorageDriver)
+	if driver == StorageDriverPostgres && !cfg.AllowMockIntegrations {
+		return fmt.Errorf(
+			"OMS_ALLOW_MOCK_INTEGRATIONS=true is required for %s storage driver: real inventory/payment integrations are not configured",
+			StorageDriverPostgres,
+		)
+	}
+	return nil
+}
+
+func newAppDependencies(runtime runtimeDependencies, logger *log.Entry) *Dependencies {
+	logger.Warn("using mock inventory/payment integrations")
+
+	return &Dependencies{
+		Repo:         runtime.repo,
+		CourierRepo:  runtime.courierRepo,
+		OutboxRepo:   runtime.outboxRepo,
+		TimelineRepo: runtime.timelineRepo,
+		InventorySvc: inventory.NewMockService(),
+		PaymentSvc:   payment.NewMockService(),
+		Logger:       logger,
+	}
+}
+
 type runtimeDependencies struct {
 	repo            domain.OrderRepository
+	courierRepo     domain.CourierRepository
 	outboxRepo      domain.OutboxRepository
 	timelineRepo    domain.TimelineRepository
 	idempotencyRepo domain.IdempotencyRepository
@@ -259,15 +287,13 @@ type runtimeDependencies struct {
 }
 
 func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry) (runtimeDependencies, error) {
-	driver := strings.ToLower(strings.TrimSpace(cfg.StorageDriver))
-	if driver == "" {
-		driver = StorageDriverMemory
-	}
+	driver := normalizedStorageDriver(cfg.StorageDriver)
 
 	switch driver {
 	case StorageDriverMemory:
 		return runtimeDependencies{
 			repo:            memory.NewOrderRepository(),
+			courierRepo:     memory.NewCourierRepository(),
 			outboxRepo:      memory.NewOutboxRepository(),
 			timelineRepo:    memory.NewTimelineRepository(),
 			idempotencyRepo: memory.NewIdempotencyRepository(),
@@ -299,6 +325,7 @@ func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry)
 
 		return runtimeDependencies{
 			repo:            postgres.NewOrderRepository(store),
+			courierRepo:     postgres.NewCourierRepository(store),
 			outboxRepo:      postgres.NewOutboxRepository(store),
 			timelineRepo:    postgres.NewTimelineRepository(store),
 			idempotencyRepo: postgres.NewIdempotencyRepository(store),
@@ -308,6 +335,14 @@ func initRuntimeDependencies(ctx context.Context, cfg Config, logger *log.Entry)
 	default:
 		return runtimeDependencies{}, fmt.Errorf("unsupported storage driver: %s", driver)
 	}
+}
+
+func normalizedStorageDriver(value string) string {
+	driver := strings.ToLower(strings.TrimSpace(value))
+	if driver == "" {
+		return StorageDriverMemory
+	}
+	return driver
 }
 
 // startMetricsServer запускает HTTP-обработчик /metrics для Prometheus.
@@ -323,7 +358,11 @@ func startMetricsServer(ctx context.Context, addr string, logger *log.Entry, hea
 		mux.HandleFunc("/readyz", handler.ReadinessHandler)
 	}
 
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
 		logger.Infof("метрики доступны по адресу %s/metrics", addr)
 		logger.Infof("health checks: %s/healthz, %s/livez, %s/readyz", addr, addr, addr)
@@ -379,6 +418,20 @@ func shutdownOutboxWorker(cancel context.CancelFunc, done <-chan struct{}, logge
 	}
 }
 
+func shutdownIdempotencyCleanupWorker(cancel context.CancelFunc, done <-chan struct{}, logger *log.Entry) {
+	if cancel == nil || done == nil {
+		return
+	}
+
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(gracefulShutdownTimeout):
+		logger.Warn("idempotency cleanup worker shutdown timeout")
+	}
+}
+
 func parseKafkaBrokers(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
 		return nil
@@ -395,6 +448,94 @@ func parseKafkaBrokers(raw string) []string {
 	}
 
 	return brokers
+}
+
+func initKafkaProducerWithRetry(
+	ctx context.Context,
+	brokers []string,
+	logger *log.Entry,
+	initTimeout time.Duration,
+	retryDelay time.Duration,
+) (*kafka.Producer, error) {
+	var producer *kafka.Producer
+	if err := retryWithDeadline(ctx, logger, "kafka producer initialization", initTimeout, retryDelay, func() error {
+		p, err := kafka.NewProducer(brokers)
+		if err != nil {
+			return err
+		}
+		producer = p
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("initialize kafka producer: %w", err)
+	}
+	return producer, nil
+}
+
+func retryWithDeadline(
+	ctx context.Context,
+	logger *log.Entry,
+	operation string,
+	timeout time.Duration,
+	retryDelay time.Duration,
+	fn func() error,
+) error {
+	if logger == nil {
+		logger = log.WithField("component", "app")
+	}
+	if timeout <= 0 {
+		timeout = kafkaInitTimeout
+	}
+	if retryDelay <= 0 {
+		retryDelay = kafkaInitRetryDelay
+	}
+
+	deadline := time.Now().Add(timeout)
+	attempt := 0
+	var lastErr error
+
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr == nil {
+				return err
+			}
+			return fmt.Errorf("%s aborted: %w", operation, err)
+		}
+
+		attempt++
+		err := fn()
+		if err == nil {
+			if attempt > 1 {
+				logger.WithFields(log.Fields{
+					"operation": operation,
+					"attempts":  attempt,
+				}).Info("operation succeeded after retries")
+			}
+			return nil
+		}
+		lastErr = err
+
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%s failed after %d attempts: %w", operation, attempt, lastErr)
+		}
+
+		logger.WithError(lastErr).WithFields(log.Fields{
+			"operation": operation,
+			"attempt":   attempt,
+		}).Warn("operation failed, retrying")
+
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			if lastErr == nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("%s aborted: %w", operation, ctx.Err())
+		case <-timer.C:
+		}
+	}
 }
 
 func closeKafkaProducer(producer *kafka.Producer, logger *log.Entry) {

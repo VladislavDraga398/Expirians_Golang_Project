@@ -37,6 +37,8 @@ type OrderService struct {
 	sagaMu     sync.Mutex
 	sagaClosed bool
 	sagaWG     sync.WaitGroup
+
+	idempotencyWarnOnce sync.Once
 }
 
 const (
@@ -192,6 +194,9 @@ func (s *OrderService) payOrderInternal(_ context.Context, req *omsv1.PayOrderRe
 	order, err := s.loadOrder(req.OrderId, "PayOrder")
 	if err != nil {
 		return nil, err
+	}
+	if order.Status != domain.OrderStatusPending {
+		return nil, status.Errorf(codes.FailedPrecondition, "order %s status=%s, expected=%s", order.ID, order.Status, domain.OrderStatusPending)
 	}
 
 	if s.saga != nil {
@@ -421,6 +426,7 @@ func withIdempotency[T proto.Message](
 	var zero T
 
 	if s.idemRepo == nil {
+		s.warnIdempotencyDisabled(method)
 		return handler(ctx)
 	}
 
@@ -451,6 +457,12 @@ func withIdempotency[T proto.Message](
 	}
 
 	return resp, nil
+}
+
+func (s *OrderService) warnIdempotencyDisabled(method string) {
+	s.idempotencyWarnOnce.Do(func() {
+		s.logger.WithField("method", method).Warn("idempotency repository is not configured; processing request without idempotency guarantees")
+	})
 }
 
 func replayIdempotency[T proto.Message](
@@ -509,7 +521,7 @@ func (s *OrderService) cacheIdempotencyFailure(key string, runErr error) {
 	}
 
 	payload, err := json.Marshal(idempotencyErrorPayload{
-		Code:    int32(code), //nolint:gosec // codes.Code is a bounded enum value.
+		Code:    grpcCodeToInt32(code),
 		Message: st.Message(),
 	})
 	if err != nil {
@@ -526,25 +538,115 @@ func decodeIdempotencyFailure(record domain.IdempotencyRecord) error {
 	if len(record.ResponseBody) > 0 {
 		var payload idempotencyErrorPayload
 		if err := json.Unmarshal(record.ResponseBody, &payload); err == nil {
-			code := codes.Code(payload.Code) //nolint:gosec // Value comes from internal serialized enum payload.
-			if code == codes.OK {
-				code = codes.Internal
+			if code, ok := grpcCodeFromInt32(payload.Code); ok {
+				if code == codes.OK {
+					code = codes.Internal
+				}
+				if payload.Message == "" {
+					payload.Message = "previous request with the same idempotency key failed"
+				}
+				return status.Error(code, payload.Message)
 			}
-			if payload.Message == "" {
-				payload.Message = "previous request with the same idempotency key failed"
-			}
-			return status.Error(code, payload.Message)
 		}
 	}
 
 	if record.HTTPStatus > 0 {
-		code := codes.Code(record.HTTPStatus) //nolint:gosec // Value is produced from int(codes.Code) in repository writes.
-		if code != codes.OK {
+		if code, ok := grpcCodeFromInt(record.HTTPStatus); ok && code != codes.OK {
 			return status.Error(code, "previous request with the same idempotency key failed")
 		}
 	}
 
 	return status.Error(codes.Internal, "previous request with the same idempotency key failed")
+}
+
+func grpcCodeFromInt32(value int32) (codes.Code, bool) {
+	return grpcCodeFromInt64(int64(value))
+}
+
+func grpcCodeToInt32(code codes.Code) int32 {
+	switch code {
+	case codes.OK:
+		return 0
+	case codes.Canceled:
+		return 1
+	case codes.Unknown:
+		return 2
+	case codes.InvalidArgument:
+		return 3
+	case codes.DeadlineExceeded:
+		return 4
+	case codes.NotFound:
+		return 5
+	case codes.AlreadyExists:
+		return 6
+	case codes.PermissionDenied:
+		return 7
+	case codes.ResourceExhausted:
+		return 8
+	case codes.FailedPrecondition:
+		return 9
+	case codes.Aborted:
+		return 10
+	case codes.OutOfRange:
+		return 11
+	case codes.Unimplemented:
+		return 12
+	case codes.Internal:
+		return 13
+	case codes.Unavailable:
+		return 14
+	case codes.DataLoss:
+		return 15
+	case codes.Unauthenticated:
+		return 16
+	default:
+		return 13
+	}
+}
+
+func grpcCodeFromInt(value int) (codes.Code, bool) {
+	return grpcCodeFromInt64(int64(value))
+}
+
+func grpcCodeFromInt64(value int64) (codes.Code, bool) {
+	switch value {
+	case 0:
+		return codes.OK, true
+	case 1:
+		return codes.Canceled, true
+	case 2:
+		return codes.Unknown, true
+	case 3:
+		return codes.InvalidArgument, true
+	case 4:
+		return codes.DeadlineExceeded, true
+	case 5:
+		return codes.NotFound, true
+	case 6:
+		return codes.AlreadyExists, true
+	case 7:
+		return codes.PermissionDenied, true
+	case 8:
+		return codes.ResourceExhausted, true
+	case 9:
+		return codes.FailedPrecondition, true
+	case 10:
+		return codes.Aborted, true
+	case 11:
+		return codes.OutOfRange, true
+	case 12:
+		return codes.Unimplemented, true
+	case 13:
+		return codes.Internal, true
+	case 14:
+		return codes.Unavailable, true
+	case 15:
+		return codes.DataLoss, true
+	case 16:
+		return codes.Unauthenticated, true
+	default:
+		return codes.Internal, false
+	}
 }
 
 func readIdempotencyKey(ctx context.Context) (string, error) {

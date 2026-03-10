@@ -250,3 +250,378 @@ func decodeFor(name string) func(interface{}) error {
 		return nil
 	}
 }
+
+type grpcTestCourierService struct {
+	UnimplementedCourierServiceServer
+}
+
+func (s *grpcTestCourierService) RegisterCourier(_ context.Context, req *RegisterCourierRequest) (*RegisterCourierResponse, error) {
+	return &RegisterCourierResponse{
+		Courier: &Courier{
+			Id:          "courier-" + req.GetPhone(),
+			Phone:       req.GetPhone(),
+			FirstName:   req.GetFirstName(),
+			LastName:    req.GetLastName(),
+			VehicleType: req.GetVehicleType(),
+			Zones:       []*CourierZone{{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1}},
+		},
+	}, nil
+}
+
+func (s *grpcTestCourierService) GetCourier(_ context.Context, req *GetCourierRequest) (*GetCourierResponse, error) {
+	return &GetCourierResponse{Courier: &Courier{Id: req.GetCourierId()}}, nil
+}
+
+func (s *grpcTestCourierService) ListCouriersByZone(_ context.Context, req *ListCouriersByZoneRequest) (*ListCouriersByZoneResponse, error) {
+	return &ListCouriersByZoneResponse{
+		Couriers: []*Courier{{Id: "courier-" + req.GetZoneId()}},
+	}, nil
+}
+
+func (s *grpcTestCourierService) ReplaceCourierZones(_ context.Context, req *ReplaceCourierZonesRequest) (*ReplaceCourierZonesResponse, error) {
+	return &ReplaceCourierZonesResponse{
+		CourierId: req.GetCourierId(),
+		Zones:     []*CourierZone{{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1}},
+	}, nil
+}
+
+func (s *grpcTestCourierService) CreateCourierSlot(_ context.Context, req *CreateCourierSlotRequest) (*CreateCourierSlotResponse, error) {
+	return &CreateCourierSlotResponse{
+		Slot: &CourierSlot{
+			Id:            "slot-" + req.GetCourierId(),
+			CourierId:     req.GetCourierId(),
+			SlotStartUnix: req.GetSlotStartUnix(),
+			SlotEndUnix:   req.GetSlotEndUnix(),
+			DurationHours: req.GetDurationHours(),
+			Status:        CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED,
+		},
+	}, nil
+}
+
+func (s *grpcTestCourierService) ListCourierSlots(_ context.Context, req *ListCourierSlotsRequest) (*ListCourierSlotsResponse, error) {
+	return &ListCourierSlotsResponse{
+		Slots: []*CourierSlot{{Id: "slot-" + req.GetCourierId(), CourierId: req.GetCourierId()}},
+	}, nil
+}
+
+func (s *grpcTestCourierService) GetCourierVehicleCapability(_ context.Context, req *GetCourierVehicleCapabilityRequest) (*GetCourierVehicleCapabilityResponse, error) {
+	return &GetCourierVehicleCapabilityResponse{
+		Capability: &CourierVehicleCapability{
+			VehicleType:      req.GetVehicleType(),
+			MaxWeightGrams:   25000,
+			MaxVolumeCm3:     250000,
+			MaxOrdersPerTrip: 10,
+			UpdatedAtUnix:    1,
+		},
+	}, nil
+}
+
+func (s *grpcTestCourierService) ListCourierVehicleCapabilities(_ context.Context, _ *ListCourierVehicleCapabilitiesRequest) (*ListCourierVehicleCapabilitiesResponse, error) {
+	return &ListCourierVehicleCapabilitiesResponse{
+		Capabilities: []*CourierVehicleCapability{
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_SCOOTER, MaxWeightGrams: 5000, MaxVolumeCm3: 35000, MaxOrdersPerTrip: 2, UpdatedAtUnix: 1},
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE, MaxWeightGrams: 10000, MaxVolumeCm3: 65000, MaxOrdersPerTrip: 3, UpdatedAtUnix: 1},
+			{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000, MaxVolumeCm3: 250000, MaxOrdersPerTrip: 10, UpdatedAtUnix: 1},
+		},
+	}, nil
+}
+
+func (s *grpcTestCourierService) SubmitCourierRating(_ context.Context, req *SubmitCourierRatingRequest) (*SubmitCourierRatingResponse, error) {
+	return &SubmitCourierRatingResponse{
+		RatingId:  req.GetRatingId(),
+		CourierId: req.GetCourierId(),
+	}, nil
+}
+
+func (s *grpcTestCourierService) GetCourierRatingSummary(_ context.Context, req *GetCourierRatingSummaryRequest) (*GetCourierRatingSummaryResponse, error) {
+	return &GetCourierRatingSummaryResponse{
+		Summary: &CourierRatingSummary{
+			CourierId:       req.GetCourierId(),
+			RatingsCount:    2,
+			AverageScore:    4.5,
+			LowRatingsCount: 0,
+			Score_4Count:    1,
+			Score_5Count:    1,
+		},
+	}, nil
+}
+
+func TestCourierServiceClientMethods(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		methods := map[string]int{}
+		conn := &fakeClientConn{
+			invoke: func(_ context.Context, method string, _ any, reply any, _ ...grpc.CallOption) error {
+				methods[method]++
+				switch out := reply.(type) {
+				case *RegisterCourierResponse:
+					out.Courier = &Courier{Id: "courier-1"}
+				case *GetCourierResponse:
+					out.Courier = &Courier{Id: "courier-1"}
+				case *ListCouriersByZoneResponse:
+					out.Couriers = []*Courier{{Id: "courier-1"}}
+				case *ReplaceCourierZonesResponse:
+					out.CourierId = "courier-1"
+					out.Zones = []*CourierZone{{ZoneId: "msk-cao-arbat", IsPrimary: true, AssignedAtUnix: 1}}
+				case *CreateCourierSlotResponse:
+					out.Slot = &CourierSlot{Id: "slot-1", Status: CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED}
+				case *ListCourierSlotsResponse:
+					out.Slots = []*CourierSlot{{Id: "slot-1", Status: CourierSlotStatus_COURIER_SLOT_STATUS_PLANNED}}
+				case *SubmitCourierRatingResponse:
+					out.RatingId = "rating-1"
+					out.CourierId = "courier-1"
+				case *GetCourierRatingSummaryResponse:
+					out.Summary = &CourierRatingSummary{CourierId: "courier-1", RatingsCount: 2}
+				case *GetCourierVehicleCapabilityResponse:
+					out.Capability = &CourierVehicleCapability{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000}
+				case *ListCourierVehicleCapabilitiesResponse:
+					out.Capabilities = []*CourierVehicleCapability{{VehicleType: CourierVehicleType_COURIER_VEHICLE_TYPE_CAR, MaxWeightGrams: 25000}}
+				default:
+					t.Fatalf("unexpected reply type: %T", out)
+				}
+				return nil
+			},
+		}
+
+		client := NewCourierServiceClient(conn)
+		ctx := context.Background()
+		if _, err := client.RegisterCourier(ctx, &RegisterCourierRequest{}); err != nil {
+			t.Fatalf("RegisterCourier failed: %v", err)
+		}
+		if _, err := client.GetCourier(ctx, &GetCourierRequest{}); err != nil {
+			t.Fatalf("GetCourier failed: %v", err)
+		}
+		if _, err := client.ListCouriersByZone(ctx, &ListCouriersByZoneRequest{}); err != nil {
+			t.Fatalf("ListCouriersByZone failed: %v", err)
+		}
+		if _, err := client.ReplaceCourierZones(ctx, &ReplaceCourierZonesRequest{}); err != nil {
+			t.Fatalf("ReplaceCourierZones failed: %v", err)
+		}
+		if _, err := client.CreateCourierSlot(ctx, &CreateCourierSlotRequest{}); err != nil {
+			t.Fatalf("CreateCourierSlot failed: %v", err)
+		}
+		if _, err := client.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); err != nil {
+			t.Fatalf("ListCourierSlots failed: %v", err)
+		}
+		if _, err := client.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{}); err != nil {
+			t.Fatalf("SubmitCourierRating failed: %v", err)
+		}
+		if _, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{}); err != nil {
+			t.Fatalf("GetCourierRatingSummary failed: %v", err)
+		}
+		if _, err := client.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{}); err != nil {
+			t.Fatalf("GetCourierVehicleCapability failed: %v", err)
+		}
+		if _, err := client.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{}); err != nil {
+			t.Fatalf("ListCourierVehicleCapabilities failed: %v", err)
+		}
+
+		for _, method := range []string{
+			CourierService_RegisterCourier_FullMethodName,
+			CourierService_GetCourier_FullMethodName,
+			CourierService_ListCouriersByZone_FullMethodName,
+			CourierService_ReplaceCourierZones_FullMethodName,
+			CourierService_CreateCourierSlot_FullMethodName,
+			CourierService_ListCourierSlots_FullMethodName,
+			CourierService_SubmitCourierRating_FullMethodName,
+			CourierService_GetCourierRatingSummary_FullMethodName,
+			CourierService_GetCourierVehicleCapability_FullMethodName,
+			CourierService_ListCourierVehicleCapabilities_FullMethodName,
+		} {
+			if methods[method] != 1 {
+				t.Fatalf("expected method %s called exactly once, got %d", method, methods[method])
+			}
+		}
+	})
+
+	t.Run("error", func(t *testing.T) {
+		conn := &fakeClientConn{
+			invoke: func(context.Context, string, any, any, ...grpc.CallOption) error {
+				return status.Error(codes.Internal, "boom")
+			},
+		}
+		client := NewCourierServiceClient(conn)
+		ctx := context.Background()
+
+		for name, call := range map[string]func() error{
+			"RegisterCourier": func() error { _, err := client.RegisterCourier(ctx, &RegisterCourierRequest{}); return err },
+			"GetCourier":      func() error { _, err := client.GetCourier(ctx, &GetCourierRequest{}); return err },
+			"ListCouriersByZone": func() error {
+				_, err := client.ListCouriersByZone(ctx, &ListCouriersByZoneRequest{})
+				return err
+			},
+			"ReplaceCourierZones": func() error { _, err := client.ReplaceCourierZones(ctx, &ReplaceCourierZonesRequest{}); return err },
+			"CreateCourierSlot":   func() error { _, err := client.CreateCourierSlot(ctx, &CreateCourierSlotRequest{}); return err },
+			"ListCourierSlots":    func() error { _, err := client.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); return err },
+			"SubmitCourierRating": func() error {
+				_, err := client.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{})
+				return err
+			},
+			"GetCourierRatingSummary": func() error {
+				_, err := client.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
+				return err
+			},
+			"GetCourierVehicleCapability": func() error {
+				_, err := client.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{})
+				return err
+			},
+			"ListCourierVehicleCapabilities": func() error {
+				_, err := client.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{})
+				return err
+			},
+		} {
+			if err := call(); status.Code(err) != codes.Internal {
+				t.Fatalf("%s expected Internal error, got %v", name, err)
+			}
+		}
+	})
+}
+
+func TestUnimplementedCourierServiceServer(t *testing.T) {
+	var srv UnimplementedCourierServiceServer
+	ctx := context.Background()
+
+	for name, call := range map[string]func() error{
+		"RegisterCourier":    func() error { _, err := srv.RegisterCourier(ctx, &RegisterCourierRequest{}); return err },
+		"GetCourier":         func() error { _, err := srv.GetCourier(ctx, &GetCourierRequest{}); return err },
+		"ListCouriersByZone": func() error { _, err := srv.ListCouriersByZone(ctx, &ListCouriersByZoneRequest{}); return err },
+		"ReplaceCourierZones": func() error {
+			_, err := srv.ReplaceCourierZones(ctx, &ReplaceCourierZonesRequest{})
+			return err
+		},
+		"CreateCourierSlot": func() error { _, err := srv.CreateCourierSlot(ctx, &CreateCourierSlotRequest{}); return err },
+		"ListCourierSlots":  func() error { _, err := srv.ListCourierSlots(ctx, &ListCourierSlotsRequest{}); return err },
+		"SubmitCourierRating": func() error {
+			_, err := srv.SubmitCourierRating(ctx, &SubmitCourierRatingRequest{})
+			return err
+		},
+		"GetCourierRatingSummary": func() error {
+			_, err := srv.GetCourierRatingSummary(ctx, &GetCourierRatingSummaryRequest{})
+			return err
+		},
+		"GetCourierVehicleCapability": func() error {
+			_, err := srv.GetCourierVehicleCapability(ctx, &GetCourierVehicleCapabilityRequest{})
+			return err
+		},
+		"ListCourierVehicleCapabilities": func() error {
+			_, err := srv.ListCourierVehicleCapabilities(ctx, &ListCourierVehicleCapabilitiesRequest{})
+			return err
+		},
+	} {
+		if err := call(); status.Code(err) != codes.Unimplemented {
+			t.Fatalf("%s expected Unimplemented error, got %v", name, err)
+		}
+	}
+
+	srv.mustEmbedUnimplementedCourierServiceServer()
+}
+
+func TestCourierGeneratedHandlers(t *testing.T) {
+	srv := &grpcTestCourierService{}
+	ctx := context.Background()
+
+	cases := []grpcGeneratedHandlerCase{
+		{name: "RegisterCourier", method: CourierService_RegisterCourier_FullMethodName, call: _CourierService_RegisterCourier_Handler},
+		{name: "GetCourier", method: CourierService_GetCourier_FullMethodName, call: _CourierService_GetCourier_Handler},
+		{name: "ListCouriersByZone", method: CourierService_ListCouriersByZone_FullMethodName, call: _CourierService_ListCouriersByZone_Handler},
+		{name: "ReplaceCourierZones", method: CourierService_ReplaceCourierZones_FullMethodName, call: _CourierService_ReplaceCourierZones_Handler},
+		{name: "CreateCourierSlot", method: CourierService_CreateCourierSlot_FullMethodName, call: _CourierService_CreateCourierSlot_Handler},
+		{name: "ListCourierSlots", method: CourierService_ListCourierSlots_FullMethodName, call: _CourierService_ListCourierSlots_Handler},
+		{name: "SubmitCourierRating", method: CourierService_SubmitCourierRating_FullMethodName, call: _CourierService_SubmitCourierRating_Handler},
+		{name: "GetCourierRatingSummary", method: CourierService_GetCourierRatingSummary_FullMethodName, call: _CourierService_GetCourierRatingSummary_Handler},
+		{name: "GetCourierVehicleCapability", method: CourierService_GetCourierVehicleCapability_FullMethodName, call: _CourierService_GetCourierVehicleCapability_Handler},
+		{name: "ListCourierVehicleCapabilities", method: CourierService_ListCourierVehicleCapabilities_FullMethodName, call: _CourierService_ListCourierVehicleCapabilities_Handler},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.call(srv, ctx, func(interface{}) error { return errors.New("decode failed") }, nil); err == nil {
+				t.Fatalf("expected decode error")
+			}
+
+			resp, err := tc.call(srv, ctx, decodeCourierFor(tc.name), nil)
+			if err != nil {
+				t.Fatalf("handler without interceptor failed: %v", err)
+			}
+			if resp == nil {
+				t.Fatalf("expected non-nil response")
+			}
+
+			interceptorCalled := false
+			resp, err = tc.call(srv, ctx, decodeCourierFor(tc.name), func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+				interceptorCalled = true
+				if info.FullMethod != tc.method {
+					t.Fatalf("unexpected full method: got %s want %s", info.FullMethod, tc.method)
+				}
+				return handler(ctx, req)
+			})
+			if err != nil {
+				t.Fatalf("handler with interceptor failed: %v", err)
+			}
+			if !interceptorCalled {
+				t.Fatalf("interceptor was not called")
+			}
+			if resp == nil {
+				t.Fatalf("expected non-nil response")
+			}
+		})
+	}
+}
+
+func TestRegisterCourierAndServiceDescriptor(t *testing.T) {
+	g := grpc.NewServer()
+	RegisterCourierServiceServer(g, &grpcTestCourierService{})
+
+	if got, want := CourierService_ServiceDesc.ServiceName, "oms.v1.CourierService"; got != want {
+		t.Fatalf("unexpected service name: got %s want %s", got, want)
+	}
+	if len(CourierService_ServiceDesc.Methods) != 10 {
+		t.Fatalf("expected 10 method descriptors, got %d", len(CourierService_ServiceDesc.Methods))
+	}
+	if CourierService_ServiceDesc.Metadata == "" {
+		t.Fatalf("metadata should not be empty")
+	}
+}
+
+func decodeCourierFor(name string) func(interface{}) error {
+	return func(v interface{}) error {
+		switch req := v.(type) {
+		case *RegisterCourierRequest:
+			req.CourierId = "courier-1"
+			req.Phone = "+79990000001"
+			req.FirstName = "Ivan"
+			req.LastName = "Petrov"
+			req.VehicleType = CourierVehicleType_COURIER_VEHICLE_TYPE_BIKE
+			req.Zones = []*CourierZoneInput{{ZoneId: "msk-cao-arbat", IsPrimary: true}}
+		case *GetCourierRequest:
+			req.CourierId = "courier-1"
+		case *ListCouriersByZoneRequest:
+			req.ZoneId = "msk-cao-arbat"
+		case *ReplaceCourierZonesRequest:
+			req.CourierId = "courier-1"
+			req.Zones = []*CourierZoneInput{{ZoneId: "msk-cao-arbat", IsPrimary: true}}
+		case *CreateCourierSlotRequest:
+			req.CourierId = "courier-1"
+			req.SlotStartUnix = 1
+			req.SlotEndUnix = 2
+			req.DurationHours = 4
+		case *ListCourierSlotsRequest:
+			req.CourierId = "courier-1"
+			req.FromUnix = 1
+			req.ToUnix = 2
+		case *SubmitCourierRatingRequest:
+			req.RatingId = "rating-1"
+			req.CourierId = "courier-1"
+			req.Score = 5
+			req.Tags = []CourierRatingTag{CourierRatingTag_COURIER_RATING_TAG_ON_TIME}
+		case *GetCourierRatingSummaryRequest:
+			req.CourierId = "courier-1"
+		case *GetCourierVehicleCapabilityRequest:
+			req.VehicleType = CourierVehicleType_COURIER_VEHICLE_TYPE_CAR
+		case *ListCourierVehicleCapabilitiesRequest:
+			// no-op
+		default:
+			return status.Errorf(codes.Internal, "unexpected request type for %s: %T", name, req)
+		}
+		return nil
+	}
+}

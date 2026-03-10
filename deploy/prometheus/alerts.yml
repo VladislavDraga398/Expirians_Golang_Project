@@ -1,0 +1,42 @@
+groups:
+  - name: oms-runtime-alerts
+    rules:
+      - alert: OMSOutboxBacklogHigh
+        expr: oms_outbox_pending_records > 1000
+        for: 10m
+        labels:
+          severity: warning
+          service: oms
+        annotations:
+          summary: "OMS outbox backlog is high"
+          description: "Outbox pending records is above 1000 for more than 10 minutes."
+
+      - alert: OMSOutboxOldestPendingTooHigh
+        expr: oms_outbox_oldest_pending_age_seconds > 600
+        for: 5m
+        labels:
+          severity: critical
+          service: oms
+        annotations:
+          summary: "OMS outbox oldest pending message is too old"
+          description: "Oldest pending outbox event age is above 600 seconds for more than 5 minutes."
+
+      - alert: OMSOutboxDLQFailuresGrowing
+        expr: increase(oms_outbox_publish_attempts_total{result=~"failed|dlq_failed"}[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: oms
+        annotations:
+          summary: "OMS DLQ-related failures are growing"
+          description: "Outbox publish failed/dlq_failed increments exceeded threshold in the last 5 minutes."
+
+      - alert: OMSIdempotencyCleanupFailures
+        expr: increase(oms_idempotency_cleanup_runs_total{result="error"}[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          service: oms
+        annotations:
+          summary: "OMS idempotency cleanup has errors"
+          description: "Idempotency cleanup worker reported errors in the last 15 minutes."

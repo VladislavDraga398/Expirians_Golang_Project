@@ -205,13 +205,21 @@ func TestHandleMessageWithRetry(t *testing.T) {
 			Value:   []byte("{}"),
 			Headers: []*sarama.RecordHeader{{Key: []byte(HeaderRetryCount), Value: []byte("1")}},
 		}
+		attempts := 0
 		consumer := &Consumer{
-			handler:    func(context.Context, *sarama.ConsumerMessage) error { return errors.New("temporary") },
+			handler: func(context.Context, *sarama.ConsumerMessage) error {
+				attempts++
+				return errors.New("temporary")
+			},
 			logger:     log.WithField("test", "retry"),
 			maxRetries: 3,
+			retryDelay: 0,
 		}
 		if err := consumer.handleMessageWithRetry(context.Background(), retryingMessage); err == nil {
 			t.Fatal("expected retry error")
+		}
+		if attempts != 2 {
+			t.Fatalf("expected 2 in-process attempts, got %d", attempts)
 		}
 	})
 

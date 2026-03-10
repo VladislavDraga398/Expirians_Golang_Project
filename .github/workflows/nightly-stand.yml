@@ -1,0 +1,230 @@
+name: Nightly Stand Reliability
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-stand-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  GO_VERSION: '1.24.x'
+  GRPCURL_VERSION: v1.9.2
+
+jobs:
+  nightly_stand:
+    name: Nightly Stand
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install grpcurl
+        run: |
+          go install github.com/fullstorydev/grpcurl/cmd/grpcurl@${{ env.GRPCURL_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Prometheus alert rules
+        run: |
+          docker run --rm \
+            -v "$PWD/deploy/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool \
+            prom/prometheus@sha256:1f0f50f06acaceb0f5670d2c8a658a599affe7b0d8e78b898c1035653849a702 \
+            check rules /etc/prometheus/alerts.yml
+
+      - name: Boot nightly stand
+        env:
+          OMS_STORAGE_DRIVER: postgres
+          OMS_ALLOW_MOCK_INTEGRATIONS: "true"
+          OMS_POSTGRES_DSN: postgres://oms:oms@postgres:5432/oms?sslmode=disable
+        run: |
+          docker compose up -d --build oms zookeeper kafka prometheus
+
+      - name: Wait for health endpoints
+        run: |
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:9090/healthz >/dev/null 2>&1; then
+              echo "✅ OMS is healthy"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "❌ Timeout waiting for /healthz"
+          docker compose ps
+          exit 1
+
+      - name: gRPC readiness probe
+        run: |
+          grpcurl -plaintext \
+            -import-path . \
+            -import-path proto \
+            -proto proto/oms/v1/order_service.proto \
+            -d '{"customer_id":"nightly-readiness-probe","page_size":1}' \
+            localhost:50051 oms.v1.OrderService/ListOrders >/dev/null
+          echo "✅ gRPC endpoint is reachable"
+
+      - name: Run saga lifecycle smoke load
+        run: |
+          ITERATIONS=120 CANCEL_RATE=25 ./scripts/saga_load.sh
+
+      - name: Run outbox delivery gate
+        run: |
+          LOG_FILE=/tmp/nightly-outbox-delivery-gate.log ./scripts/ci/outbox_delivery_gate.sh
+
+      - name: Run nightly long load gate
+        run: |
+          MODE=create-pay-cancel \
+          CANCEL_RATE=25 \
+          MAX_ERROR_RATE=0.010 \
+          MAX_P95_MS=1200 \
+          MAX_AVG_MS=800 \
+          DURATION=12m \
+          CONCURRENCY=30 \
+          CONNECTIONS=15 \
+          TIMEOUT=8s \
+          OUT=/tmp/nightly-load-gate-report.json \
+          ./scripts/ci/load_gate.sh
+
+      - name: Run observability gate
+        run: |
+          CHECK_PROMETHEUS=1 \
+          CHECK_OUTBOX_ATTEMPTS=1 \
+          METRICS_FILE=/tmp/nightly-oms-metrics.prom \
+          ./scripts/ci/observability_gate.sh
+
+      - name: Chaos check (Kafka outage + recovery)
+        run: |
+          docker compose stop kafka
+          sleep 8
+
+          create_resp=$(grpcurl -plaintext \
+            -import-path . \
+            -import-path proto \
+            -H "idempotency-key: nightly-kafka-chaos-create-$(date +%s%N)" \
+            -proto proto/oms/v1/order_service.proto \
+            -d '{
+                  "customer_id":"nightly-kafka-chaos",
+                  "currency":"USD",
+                  "items":[{"sku":"sku-chaos","qty":1,"price":{"currency":"USD","amount_minor":1000}}]
+                }' \
+            localhost:50051 oms.v1.OrderService/CreateOrder)
+          echo "$create_resp" | jq -r '.order.id // empty' | grep -Eq '.+'
+
+          docker compose start kafka
+          for i in $(seq 1 90); do
+            if docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:9092 >/dev/null 2>&1; then
+              echo "✅ Kafka recovered"
+              break
+            fi
+            if [ "$i" -eq 90 ]; then
+              echo "❌ Kafka did not recover in time"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          LOG_FILE=/tmp/nightly-outbox-after-kafka-recovery.log ./scripts/ci/outbox_delivery_gate.sh
+
+      - name: Chaos check (Postgres outage + recovery)
+        run: |
+          docker compose stop postgres
+          sleep 5
+
+          degraded=0
+          for i in $(seq 1 30); do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" http://localhost:9090/readyz || true)
+            if [[ "$code" != "200" ]]; then
+              degraded=1
+              echo "✅ readyz degraded during postgres outage (HTTP $code)"
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$degraded" -ne 1 ]]; then
+            echo "⚠️ readyz did not degrade during postgres outage window"
+          fi
+
+          docker compose start postgres
+          for i in $(seq 1 180); do
+            if curl -sf http://localhost:9090/readyz >/dev/null 2>&1; then
+              echo "✅ readyz recovered after postgres restart"
+              break
+            fi
+            if [ "$i" -eq 180 ]; then
+              echo "❌ readyz did not recover after postgres restart"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          grpcurl -plaintext \
+            -import-path . \
+            -import-path proto \
+            -proto proto/oms/v1/order_service.proto \
+            -d '{"customer_id":"nightly-postgres-recovery","page_size":1}' \
+            localhost:50051 oms.v1.OrderService/ListOrders >/dev/null
+
+      - name: Collect nightly artifacts
+        if: always()
+        run: |
+          docker compose logs --tail=500 > nightly-compose-logs.txt || true
+          cp /tmp/nightly-load-gate-report.json nightly-load-gate-report.json || true
+          cp /tmp/nightly-oms-metrics.prom nightly-oms-metrics.prom || true
+          cp /tmp/nightly-outbox-delivery-gate.log nightly-outbox-delivery-gate.log || true
+          cp /tmp/nightly-outbox-after-kafka-recovery.log nightly-outbox-after-kafka-recovery.log || true
+
+      - name: Upload nightly stand artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: nightly-stand-artifacts
+          path: |
+            nightly-compose-logs.txt
+            nightly-load-gate-report.json
+            nightly-oms-metrics.prom
+            nightly-outbox-delivery-gate.log
+            nightly-outbox-after-kafka-recovery.log
+          retention-days: 14
+
+      - name: Shutdown nightly stand
+        if: always()
+        run: |
+          docker compose down -v
+
+  stand_trend_report:
+    name: Nightly Stand Trend Report
+    runs-on: ubuntu-latest
+    needs: [nightly_stand]
+    if: always() && needs.nightly_stand.result == 'success'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Build trend report from recent CI runs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          LOOKBACK_RUNS=10 \
+          BRANCH=dev \
+          OUTPUT_MD=/tmp/stand-trend-report.md \
+          ./scripts/ci/stand_trend_report.sh
+          cat /tmp/stand-trend-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload trend report artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stand-trend-report
+          path: /tmp/stand-trend-report.md
+          retention-days: 14

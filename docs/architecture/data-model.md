@@ -1,137 +1,143 @@
 # Data Model
 
-> Модель данных и схема базы данных OMS
+> Актуальная модель данных OMS/BoostMarket на текущем runtime
 
-**Версия:** v2.0 | **Обновлено:** 2025-10-01 | **Статус:** Актуально
+**Версия:** v2.4 | **Обновлено:** 2026-03-08 | **Статус:** Sprint 3 Active
 
 ---
 
 ## TL;DR
-- Нормализованная модель: `orders`, `order_items`, `payments`, `inventory_reservations`, `outbox`, `idempotency_keys`.
-- Денежные суммы — minor units (`int64`).
-- Конкуренция — optimistic locking (`orders.version`).
-- Первые кандидаты на партиционирование/TTL: `outbox`, `idempotency_keys`.
+- Основные таблицы заказа: `orders`, `order_items`, `timeline_events`, `outbox_messages`, `idempotency_keys`.
+- Денежные суммы: minor units (`BIGINT`).
+- Outbox runtime использует статусы `pending|processing|sent|failed` и поле `attempt_count`.
+- Delivery-модель расширена: `couriers`, `courier_zones`, `courier_slots`, `courier_vehicle_capabilities`, `courier_ratings`.
+- `CourierService` уже выведен в runtime (registration/zones/slots/capabilities/ratings).
 
-## Назначение
-Логическая ERD, схемы таблиц, ограничения, индексы и стратегия версионирования для OMS.
+## Основные сущности (ядро OMS)
 
-## ER-диаграмма (логическая)
-```mermaid
-erDiagram
-  ORDERS ||--o{ ORDER_ITEMS : contains
-  ORDERS ||--o| PAYMENTS : has
-  ORDERS ||--o{ INVENTORY_RESERVATIONS : reserves
-  ORDERS ||--o{ OUTBOX : emits
-  ORDERS ||--o{ IDEMPOTENCY_KEYS : uses
+### `orders`
+- `id` (PK, text)
+- `customer_id` (text)
+- `status` (text)
+- `currency` (text)
+- `amount_minor` (bigint)
+- `version` (bigint)
+- `created_at`, `updated_at` (timestamptz)
 
-  ORDERS {
-    uuid id PK
-    uuid customer_id
-    string status
-    int64 amount_minor
-    string currency
-    int version
-    timestamptz created_at
-    timestamptz updated_at
-  }
+Индексы:
+- `idx_orders_customer_created_at (customer_id, created_at DESC)`
 
-  ORDER_ITEMS {
-    uuid id PK
-    uuid order_id FK
-    string sku
-    int qty
-    int64 price_minor
-    timestamptz created_at
-  }
+### `order_items`
+- `id` (PK)
+- `order_id` (FK -> `orders.id`)
+- `sku`, `qty`, `price_minor`
+- `created_at`
 
-  PAYMENTS {
-    uuid id PK
-    uuid order_id FK
-    string provider
-    string external_id
-    string status
-    int64 amount_minor
-    timestamptz created_at
-    timestamptz updated_at
-  }
+Индексы:
+- `idx_order_items_order_id (order_id)`
 
-  INVENTORY_RESERVATIONS {
-    uuid id PK
-    uuid order_id FK
-    string sku
-    int qty
-    string status
-    timestamptz created_at
-    timestamptz updated_at
-  }
+### `timeline_events`
+- `id` (bigserial PK)
+- `order_id` (FK -> `orders.id`)
+- `type`, `reason`
+- `occurred`
 
-  OUTBOX {
-    uuid id PK
-    string aggregate_type
-    uuid aggregate_id
-    string event_type
-    jsonb payload
-    string status
-    int attempt_cnt
-    timestamptz created_at
-    timestamptz updated_at
-  }
+Индексы:
+- `idx_timeline_order_occurred (order_id, occurred, id)`
 
-  IDEMPOTENCY_KEYS {
-    string key PK
-    text request_hash
-    jsonb response_body
-    string status
-    timestamptz ttl_at
-    timestamptz created_at
-    timestamptz updated_at
-  }
-```
+### `outbox_messages`
+- `id` (PK)
+- `aggregate_type`, `aggregate_id`, `event_type`
+- `payload` (bytea)
+- `status` (`pending|processing|sent|failed`)
+- `attempt_count` (integer)
+- `created_at`, `updated_at`
 
-## Таблицы (предложение)
-- Orders
-  - Поля: `id`, `customer_id`, `status`, `amount_minor`, `currency`, `version`, `created_at`, `updated_at`.
-  - Индексы: по `status`, по `(customer_id, created_at desc)`, по `created_at`.
-  - Ограничения: суммы неотрицательны; формат валюты; `version` для optimistic locking.
+Индексы:
+- `idx_outbox_status_created_at (status, created_at)`
 
-- Order Items
-  - Поля: `id`, `order_id`, `sku`, `qty>0`, `price_minor>=0`, `created_at`.
-  - Индексы: по `order_id`, по `sku`.
+### `idempotency_keys`
+- `key` (PK)
+- `request_hash`
+- `response_body` (bytea)
+- `http_status` (integer)
+- `status` (`processing|done|failed`)
+- `ttl_at`, `created_at`, `updated_at`
 
-- Payments
-  - Поля: `id`, `order_id`, `provider`, `external_id (unique nullable)`, `status`, `amount_minor`, временные метки.
-  - Индексы: по `order_id`, `status`, `(provider, external_id)`.
+Индексы:
+- `idx_idempotency_keys_ttl_at (ttl_at)`
+- `idx_idempotency_keys_status (status)`
 
-- Inventory Reservations
-  - Поля: `id`, `order_id`, `sku`, `qty>0`, `status`, временные метки.
-  - Индексы: по `order_id`, `sku`, `status`.
+## Delivery foundation (Sprint 2 + early Sprint 5)
 
-- Outbox
-  - Поля: `id`, `aggregate_type`, `aggregate_id`, `event_type`, `payload`, `status (pending|sent|failed)`, `attempt_cnt`, временные метки.
-  - Индексы: `(status, created_at)`, `(aggregate_type, aggregate_id)`.
+### `couriers`
+- `id` (PK)
+- `phone` (unique)
+- `first_name`, `last_name`
+- `vehicle_type` (`scooter|bike|car`)
+- `is_active`
+- `created_at`, `updated_at`
 
-- Idempotency Keys
-  - Поля: `key`, `request_hash`, `response_body`, `status (processing|done|failed)`, `ttl_at`, временные метки.
-  - Индексы: `ttl_at`, `status`.
+Индексы:
+- `idx_couriers_vehicle_type_active (vehicle_type, is_active)`
 
-## Статусы
-- Orders: `pending|reserved|paid|confirmed|canceled|refunded` (soft-enum через check-constraint для упрощения миграций).
-- Payments: `pending|authorized|captured|refunded|failed`.
-- Reservations: `pending|reserved|released|failed`.
+### `courier_zones`
+- `courier_id` (FK -> `couriers.id`)
+- `zone_id`
+- `is_primary`
+- `created_at`
+- PK: `(courier_id, zone_id)`
 
-## Представление денежных сумм
-- Minor units (`int64`) для избежания ошибок округления.
+Индексы/ограничения:
+- `idx_courier_zones_zone_id (zone_id)`
+- `idx_courier_zones_courier_priority (courier_id, is_primary DESC, zone_id ASC)`
+- `idx_courier_zones_one_primary` (частичный unique: один primary zone на курьера)
 
-## Версионирование и конкуренция
-- Optimistic locking через `orders.version` и обновления `WHERE id=? AND version=?`; при конфликте → ретрай.
+### `courier_slots`
+- `id` (PK)
+- `courier_id` (FK -> `couriers.id`)
+- `slot_start`, `slot_end`
+- `duration_hours` (`4|8|12`)
+- `status` (`planned|active|completed|canceled`)
+- `created_at`, `updated_at`
 
-## Партиционирование и хранение (в будущем)
-- Сначала рассмотреть партиционирование по времени для `outbox` и `idempotency_keys`; для `orders` — по мере необходимости.
+Ограничения:
+- `slot_end > slot_start`
+- unique `(courier_id, slot_start)`
 
-## Инварианты
-- `orders.amount_minor = sum(order_items.qty * order_items.price_minor)` — проверять в приложении; опционально аудит/триггер.
+### `courier_vehicle_capabilities`
+- `vehicle_type` (PK: `scooter|bike|car`)
+- `max_weight_grams`
+- `max_volume_cm3`
+- `max_orders_per_trip`
+- `updated_at`
 
-## Альтернативы
-- Enum-типы против text+check: начать с text+check для простых миграций.
-- Decimal в БД против minor units: стандартизировать minor units на уровне домена и БД.
+### `courier_ratings`
+- `id` (PK)
+- `courier_id` (FK -> `couriers.id`, `ON DELETE CASCADE`)
+- `score` (`1..5`)
+- `tags` (JSONB array)
+- `comment`
+- `created_at`
 
+Индексы:
+- `idx_courier_ratings_courier_created (courier_id, created_at DESC)`
+- `idx_courier_ratings_courier_score (courier_id, score)`
+
+## Статусы заказа
+- `pending`
+- `reserved`
+- `paid`
+- `confirmed`
+- `canceled`
+- `refunded`
+
+## Текущее состояние runtime
+- Публичный `CourierService` включён в runtime.
+- Реализованы: регистрация курьеров, управление зонами, слоты, vehicle capabilities, рейтинг и summary.
+
+## Связанные документы
+- `docs/architecture/overview.md`
+- `docs/architecture/saga.md`
+- `docs/architecture/outbox.md`
+- `docs/roadmap.md`

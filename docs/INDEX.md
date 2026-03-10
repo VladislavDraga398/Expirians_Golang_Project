@@ -43,6 +43,7 @@
 - [decisions/adr/0002-consistency-saga-orchestration.md](decisions/adr/0002-consistency-saga-orchestration.md)
 - [decisions/adr/0003-idempotency-key.md](decisions/adr/0003-idempotency-key.md)
 - [decisions/adr/0004-outbox-vs-cdc.md](decisions/adr/0004-outbox-vs-cdc.md)
+- [decisions/tech-debt.md](decisions/tech-debt.md)
 - [decisions/open-questions.md](decisions/open-questions.md)
 
 ## Templates

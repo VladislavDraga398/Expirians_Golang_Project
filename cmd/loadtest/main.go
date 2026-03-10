@@ -7,8 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -320,16 +320,14 @@ func main() {
 	for workerID := 0; workerID < cfg.concurrency; workerID++ {
 		wg.Add(1)
 		client := clients[workerID%len(clients)]
-		go func(worker int, cli omsv1.OrderServiceClient) {
+		go func(cli omsv1.OrderServiceClient) {
 			defer wg.Done()
-			//nolint:gosec // Pseudo-randomness is sufficient for synthetic load distribution.
-			rng := rand.New(rand.NewSource(time.Now().UnixNano() + int64(worker)*104729))
 			for id := range jobs {
-				if runErr := runScenario(cli, cfg, id, runID, rng, col); runErr != nil {
+				if runErr := runScenario(cli, cfg, id, runID, col); runErr != nil {
 					atomic.AddInt64(&failures, 1)
 				}
 			}
-		}(workerID, client)
+		}(client)
 	}
 
 	dispatchJobs(jobs, cfg)
@@ -386,7 +384,6 @@ func runScenario(
 	cfg config,
 	index int,
 	runID string,
-	rng *rand.Rand,
 	col *collector,
 ) error {
 	scenarioStart := time.Now()
@@ -432,7 +429,7 @@ func runScenario(
 		return err
 	}
 
-	if cfg.mode == modeCreatePayCancel || (cfg.mode == modeCreatePay && cfg.cancelRate > 0 && rng.Intn(100) < cfg.cancelRate) {
+	if cfg.mode == modeCreatePayCancel || (cfg.mode == modeCreatePay && shouldCancelScenario(index, cfg.cancelRate)) {
 		cancelKey := fmt.Sprintf("lt-cancel-%s-%d", runID, index)
 		if err := callCancelOrder(client, cfg.timeout, orderID, cancelKey, col); err != nil {
 			scenarioCode = grpcCode(err)
@@ -502,8 +499,27 @@ func grpcCode(err error) codes.Code {
 	return status.Code(err)
 }
 
+func shouldCancelScenario(index, cancelRate int) bool {
+	if cancelRate <= 0 {
+		return false
+	}
+	if cancelRate >= 100 {
+		return true
+	}
+	return index%100 < cancelRate
+}
+
 func writeJSONReport(path string, result report) error {
-	file, err := os.Create(path)
+	cleanPath := filepath.Clean(path)
+	if cleanPath == "." || cleanPath == string(filepath.Separator) {
+		return errors.New("output path must point to a file")
+	}
+	if cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("output path must be inside current directory: %s", path)
+	}
+
+	// #nosec G304 -- path is an explicit CLI output parameter for local load-test reports.
+	file, err := os.Create(cleanPath)
 	if err != nil {
 		return err
 	}

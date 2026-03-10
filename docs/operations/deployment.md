@@ -2,7 +2,7 @@
 
 > Стратегии деплоя и развёртывания OMS
 
-**Версия:** v2.2 | **Обновлено:** 2026-02-12 | **Статус:** Актуально
+**Версия:** v2.4 | **Обновлено:** 2026-02-23 | **Статус:** Актуально
 
 ---
 
@@ -24,7 +24,7 @@
 ## Принципы
 - Иммутабельные образы, декларативные манифесты.
 - Конфигурация через env/secret manager, не в коде.
-- Обратносovместимые миграции, релизы без простоя.
+- Обратносовместимые миграции, релизы без простоя.
 
 ## Локально (Dev)
 - Контейнеры: OrderService, реляционная БД, брокер, стек наблюдаемости (опц.), моки Inventory/Payment.
@@ -43,7 +43,7 @@
 - Blue/Green для быстрого отката
 
 ## Миграции БД
-- Обратносovместимые шаги: добавить (nullable/с дефолтом) → backfill → переключить код → удалить старое.
+- Обратносовместимые шаги: добавить (nullable/с дефолтом) → backfill → переключить код → удалить старое.
 - Запускать миграции до/вместе с выкладкой; избегать блокирующих DDL.
 - План отката версий схемы.
 
@@ -55,6 +55,14 @@
 - `OMS_STORAGE_DRIVER=memory|postgres`
 - `OMS_POSTGRES_DSN=postgres://...`
 - `OMS_POSTGRES_AUTO_MIGRATE=true|false`
+- `OMS_ALLOW_MOCK_INTEGRATIONS=true|false` (для `postgres` сейчас обязателен `true`, пока нет реальных Inventory/Payment адаптеров)
+- `OMS_OUTBOX_POLL_INTERVAL=1s`
+- `OMS_OUTBOX_BATCH_SIZE=100`
+- `OMS_OUTBOX_MAX_ATTEMPTS=3`
+- `OMS_OUTBOX_RETRY_DELAY=50ms`
+- `OMS_OUTBOX_MAX_PENDING=10000`
+- `OMS_IDEMPOTENCY_CLEANUP_INTERVAL=10m` (0 — отключить cleanup)
+- `OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE=500`
 
 ### Миграции
 - Локально/CI миграции запускаются через `cmd/migrate` (`up`, `down`, `status`).

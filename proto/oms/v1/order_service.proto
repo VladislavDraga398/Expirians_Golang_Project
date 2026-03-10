@@ -50,6 +50,70 @@ message TimelineEvent {
   int64 unix_time = 3; // Момент события в unix-времени.
 }
 
+enum CourierVehicleType {
+  COURIER_VEHICLE_TYPE_UNSPECIFIED = 0;
+  COURIER_VEHICLE_TYPE_SCOOTER = 1;
+  COURIER_VEHICLE_TYPE_BIKE = 2;
+  COURIER_VEHICLE_TYPE_CAR = 3;
+}
+
+enum CourierSlotStatus {
+  COURIER_SLOT_STATUS_UNSPECIFIED = 0;
+  COURIER_SLOT_STATUS_PLANNED = 1;
+  COURIER_SLOT_STATUS_ACTIVE = 2;
+  COURIER_SLOT_STATUS_COMPLETED = 3;
+  COURIER_SLOT_STATUS_CANCELED = 4;
+}
+
+enum CourierRatingTag {
+  COURIER_RATING_TAG_UNSPECIFIED = 0;
+  COURIER_RATING_TAG_ON_TIME = 1;
+  COURIER_RATING_TAG_POLITE = 2;
+  COURIER_RATING_TAG_CAREFUL_HANDLING = 3;
+  COURIER_RATING_TAG_DELAYED_DELIVERY = 4;
+  COURIER_RATING_TAG_RUDE_BEHAVIOR = 5;
+  COURIER_RATING_TAG_DAMAGED_ORDER = 6;
+  COURIER_RATING_TAG_OTHER_ISSUE = 7;
+}
+
+message CourierZoneInput {
+  string zone_id = 1;
+  bool is_primary = 2;
+}
+
+message CourierZone {
+  string zone_id = 1;
+  bool is_primary = 2;
+  int64 assigned_at_unix = 3;
+}
+
+message Courier {
+  string id = 1;
+  string phone = 2;
+  string first_name = 3;
+  string last_name = 4;
+  CourierVehicleType vehicle_type = 5;
+  bool is_active = 6;
+  repeated CourierZone zones = 7;
+}
+
+message CourierSlot {
+  string id = 1;
+  string courier_id = 2;
+  int64 slot_start_unix = 3;
+  int64 slot_end_unix = 4;
+  int32 duration_hours = 5;
+  CourierSlotStatus status = 6;
+}
+
+message CourierVehicleCapability {
+  CourierVehicleType vehicle_type = 1;
+  int32 max_weight_grams = 2;
+  int32 max_volume_cm3 = 3;
+  int32 max_orders_per_trip = 4;
+  int64 updated_at_unix = 5;
+}
+
 // ---- Requests & Responses ----
 message CreateOrderRequest {
   string customer_id = 1;
@@ -112,6 +176,123 @@ message RefundOrderResponse {
   OrderStatus status = 2;
 }
 
+message RegisterCourierRequest {
+  string courier_id = 1;
+  string phone = 2;
+  string first_name = 3;
+  string last_name = 4;
+  CourierVehicleType vehicle_type = 5;
+  repeated CourierZoneInput zones = 6;
+}
+
+message RegisterCourierResponse {
+  Courier courier = 1;
+}
+
+message GetCourierRequest {
+  string courier_id = 1;
+}
+
+message GetCourierResponse {
+  Courier courier = 1;
+}
+
+message ListCouriersByZoneRequest {
+  string zone_id = 1;
+  int32 limit = 2;
+}
+
+message ListCouriersByZoneResponse {
+  repeated Courier couriers = 1;
+}
+
+message ReplaceCourierZonesRequest {
+  string courier_id = 1;
+  repeated CourierZoneInput zones = 2;
+}
+
+message ReplaceCourierZonesResponse {
+  string courier_id = 1;
+  repeated CourierZone zones = 2;
+}
+
+message CreateCourierSlotRequest {
+  string slot_id = 1;
+  string courier_id = 2;
+  int64 slot_start_unix = 3;
+  int64 slot_end_unix = 4;
+  int32 duration_hours = 5;
+}
+
+message CreateCourierSlotResponse {
+  CourierSlot slot = 1;
+}
+
+message ListCourierSlotsRequest {
+  string courier_id = 1;
+  int64 from_unix = 2;
+  int64 to_unix = 3;
+}
+
+message ListCourierSlotsResponse {
+  repeated CourierSlot slots = 1;
+}
+
+message GetCourierVehicleCapabilityRequest {
+  CourierVehicleType vehicle_type = 1;
+}
+
+message GetCourierVehicleCapabilityResponse {
+  CourierVehicleCapability capability = 1;
+}
+
+message ListCourierVehicleCapabilitiesRequest {}
+
+message ListCourierVehicleCapabilitiesResponse {
+  repeated CourierVehicleCapability capabilities = 1;
+}
+
+message SubmitCourierRatingRequest {
+  string rating_id = 1;
+  string courier_id = 2;
+  int32 score = 3;
+  repeated CourierRatingTag tags = 4;
+  string comment = 5;
+}
+
+message SubmitCourierRatingResponse {
+  string rating_id = 1;
+  string courier_id = 2;
+}
+
+message GetCourierRatingSummaryRequest {
+  string courier_id = 1;
+}
+
+message CourierRatingSummary {
+  string courier_id = 1;
+  int64 ratings_count = 2;
+  double average_score = 3;
+  int64 low_ratings_count = 4;
+  int64 score_1_count = 5;
+  int64 score_2_count = 6;
+  int64 score_3_count = 7;
+  int64 score_4_count = 8;
+  int64 score_5_count = 9;
+  int64 last_rating_unix = 10;
+  int64 on_time_count = 11;
+  int64 polite_count = 12;
+  int64 careful_count = 13;
+  int64 delayed_count = 14;
+  int64 rude_count = 15;
+  int64 damaged_count = 16;
+  int64 other_issue_count = 17;
+}
+
+message GetCourierRatingSummaryResponse {
+  CourierRatingSummary summary = 1;
+}
+
 // ---- gRPC сервис ----
 service OrderService {
   // Создание заказа, запуск первичной саги.
@@ -157,6 +338,83 @@ service OrderService {
     option (google.api.http) = {
       post: "/v1/orders/{order_id}/refund"
       body: "*"
+    };
+  }
+}
+
+// ---- gRPC сервис доставки ----
+service CourierService {
+  // Регистрация курьера по телефону как уникальному бизнес-идентификатору.
+  rpc RegisterCourier(RegisterCourierRequest) returns (RegisterCourierResponse) {
+    option (google.api.http) = {
+      post: "/v1/couriers"
+      body: "*"
+    };
+  }
+
+  // Получение профиля курьера.
+  rpc GetCourier(GetCourierRequest) returns (GetCourierResponse) {
+    option (google.api.http) = {
+      get: "/v1/couriers/{courier_id}"
+    };
+  }
+
+  // Список курьеров по району/зоне.
+  rpc ListCouriersByZone(ListCouriersByZoneRequest) returns (ListCouriersByZoneResponse) {
+    option (google.api.http) = {
+      get: "/v1/zones/{zone_id}/couriers"
+    };
+  }
+
+  // Полная замена зон курьера.
+  rpc ReplaceCourierZones(ReplaceCourierZonesRequest) returns (ReplaceCourierZonesResponse) {
+    option (google.api.http) = {
+      put: "/v1/couriers/{courier_id}/zones"
+      body: "*"
+    };
+  }
+
+  // Создание рабочего слота курьера.
+  rpc CreateCourierSlot(CreateCourierSlotRequest) returns (CreateCourierSlotResponse) {
+    option (google.api.http) = {
+      post: "/v1/couriers/{courier_id}/slots"
+      body: "*"
+    };
+  }
+
+  // Список рабочих слотов курьера за период.
+  rpc ListCourierSlots(ListCourierSlotsRequest) returns (ListCourierSlotsResponse) {
+    option (google.api.http) = {
+      get: "/v1/couriers/{courier_id}/slots"
+    };
+  }
+
+  // Capability-профиль по конкретному типу транспорта.
+  rpc GetCourierVehicleCapability(GetCourierVehicleCapabilityRequest) returns (GetCourierVehicleCapabilityResponse) {
+    option (google.api.http) = {
+      get: "/v1/courier-vehicle-capabilities/{vehicle_type}"
+    };
+  }
+
+  // Capability-профили по всем типам транспорта.
+  rpc ListCourierVehicleCapabilities(ListCourierVehicleCapabilitiesRequest) returns (ListCourierVehicleCapabilitiesResponse) {
+    option (google.api.http) = {
+      get: "/v1/courier-vehicle-capabilities"
+    };
+  }
+
+  // Добавить оценку качества доставки по курьеру.
+  rpc SubmitCourierRating(SubmitCourierRatingRequest) returns (SubmitCourierRatingResponse) {
+    option (google.api.http) = {
+      post: "/v1/couriers/{courier_id}/ratings"
+      body: "*"
+    };
+  }
+
+  // Получить агрегированную сводку рейтинга курьера.
+  rpc GetCourierRatingSummary(GetCourierRatingSummaryRequest) returns (GetCourierRatingSummaryResponse) {
+    option (google.api.http) = {
+      get: "/v1/couriers/{courier_id}/ratings/summary"
     };
   }
 }

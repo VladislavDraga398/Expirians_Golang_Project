@@ -2,6 +2,7 @@ package saga
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -32,6 +33,7 @@ type RetryableOrchestrator struct {
 	orchestrator Orchestrator
 	config       RetryConfig
 	logger       *log.Entry
+	warnOnce     sync.Once
 }
 
 // NewRetryableOrchestrator создаёт новый оркестратор с retry логикой.
@@ -49,25 +51,25 @@ func NewRetryableOrchestrator(orchestrator Orchestrator, config RetryConfig, log
 
 // Start запускает обработку заказа с retry логикой.
 func (ro *RetryableOrchestrator) Start(orderID string) {
-	ro.executeWithRetry("Start", orderID, func() error {
-		ro.orchestrator.Start(orderID)
-		return nil // Start не возвращает ошибку, но мы можем добавить проверки
-	})
+	ro.warnRetryUnsupported()
+	ro.orchestrator.Start(orderID)
 }
 
 // Cancel отменяет заказ с retry логикой.
 func (ro *RetryableOrchestrator) Cancel(orderID, reason string) {
-	ro.executeWithRetry("Cancel", orderID, func() error {
-		ro.orchestrator.Cancel(orderID, reason)
-		return nil
-	})
+	ro.warnRetryUnsupported()
+	ro.orchestrator.Cancel(orderID, reason)
 }
 
 // Refund возвращает средства с retry логикой.
 func (ro *RetryableOrchestrator) Refund(orderID string, amountMinor int64, reason string) {
-	ro.executeWithRetry("Refund", orderID, func() error {
-		ro.orchestrator.Refund(orderID, amountMinor, reason)
-		return nil
+	ro.warnRetryUnsupported()
+	ro.orchestrator.Refund(orderID, amountMinor, reason)
+}
+
+func (ro *RetryableOrchestrator) warnRetryUnsupported() {
+	ro.warnOnce.Do(func() {
+		ro.logger.Warn("retry for orchestrator methods is disabled: Start/Cancel/Refund do not return errors")
 	})
 }
 
@@ -131,13 +133,16 @@ func (ro *RetryableOrchestrator) executeWithRetry(operation, orderID string, fn 
 func (ro *RetryableOrchestrator) shouldRetry(err error) bool {
 	// Не повторяем при бизнес-логических ошибках
 	if errors.Is(err, domain.ErrOrderNotFound) ||
-		errors.Is(err, domain.ErrOrderVersionConflict) {
+		errors.Is(err, domain.ErrOrderVersionConflict) ||
+		errors.Is(err, domain.ErrInventoryUnavailable) ||
+		errors.Is(err, domain.ErrPaymentDeclined) {
 		return false
 	}
 
 	// Повторяем при временных ошибках сети, базы данных и т.д.
-	if errors.Is(err, domain.ErrInventoryUnavailable) ||
-		errors.Is(err, domain.ErrPaymentDeclined) {
+	if errors.Is(err, domain.ErrInventoryTemporary) ||
+		errors.Is(err, domain.ErrPaymentTemporary) ||
+		errors.Is(err, domain.ErrPaymentIndeterminate) {
 		return true
 	}
 
@@ -147,6 +152,8 @@ func (ro *RetryableOrchestrator) shouldRetry(err error) bool {
 
 // CircuitBreaker простая реализация circuit breaker паттерна.
 type CircuitBreaker struct {
+	mu sync.Mutex
+
 	maxFailures  int
 	resetTimeout time.Duration
 
@@ -180,16 +187,24 @@ func NewCircuitBreaker(maxFailures int, resetTimeout time.Duration, logger *log.
 
 // Execute выполняет операцию через circuit breaker.
 func (cb *CircuitBreaker) Execute(operation string, fn func() error) error {
+	cb.mu.Lock()
 	if cb.state == CircuitOpen {
 		if time.Since(cb.lastFailure) > cb.resetTimeout {
 			cb.state = CircuitHalfOpen
+			cb.mu.Unlock()
 			cb.logger.WithField("operation", operation).Info("Circuit breaker half-open")
 		} else {
+			cb.mu.Unlock()
 			return errors.New("circuit breaker is open")
 		}
+	} else {
+		cb.mu.Unlock()
 	}
 
 	err := fn()
+
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
 	if err != nil {
 		cb.failures++

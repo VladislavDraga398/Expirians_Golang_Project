@@ -38,20 +38,28 @@ func TestDefaultConfig_Values(t *testing.T) {
 	if cfg.OutboxMaxPending <= 0 {
 		t.Error("expected OutboxMaxPending to be > 0")
 	}
+	if cfg.IdempotencyCleanupInterval <= 0 {
+		t.Error("expected IdempotencyCleanupInterval to be > 0")
+	}
+	if cfg.IdempotencyCleanupBatchSize <= 0 {
+		t.Error("expected IdempotencyCleanupBatchSize to be > 0")
+	}
 }
 
 func TestConfig_CustomValues(t *testing.T) {
 	cfg := Config{
-		GRPCAddr:            ":8080",
-		MetricsAddr:         ":9091",
-		StorageDriver:       StorageDriverPostgres,
-		PostgresDSN:         "postgres://oms:oms@localhost:5432/oms?sslmode=disable",
-		PostgresAutoMigrate: false,
-		OutboxPollInterval:  2 * time.Second,
-		OutboxBatchSize:     50,
-		OutboxMaxAttempts:   5,
-		OutboxRetryDelay:    time.Second,
-		OutboxMaxPending:    200,
+		GRPCAddr:                    ":8080",
+		MetricsAddr:                 ":9091",
+		StorageDriver:               StorageDriverPostgres,
+		PostgresDSN:                 "postgres://oms:oms@localhost:5432/oms?sslmode=disable",
+		PostgresAutoMigrate:         false,
+		OutboxPollInterval:          2 * time.Second,
+		OutboxBatchSize:             50,
+		OutboxMaxAttempts:           5,
+		OutboxRetryDelay:            time.Second,
+		OutboxMaxPending:            200,
+		IdempotencyCleanupInterval:  5 * time.Minute,
+		IdempotencyCleanupBatchSize: 300,
 	}
 
 	if cfg.GRPCAddr != ":8080" {
@@ -72,6 +80,12 @@ func TestConfig_CustomValues(t *testing.T) {
 
 	if cfg.PostgresAutoMigrate {
 		t.Error("expected PostgresAutoMigrate to be false")
+	}
+	if cfg.IdempotencyCleanupInterval != 5*time.Minute {
+		t.Errorf("expected IdempotencyCleanupInterval 5m, got %s", cfg.IdempotencyCleanupInterval)
+	}
+	if cfg.IdempotencyCleanupBatchSize != 300 {
+		t.Errorf("expected IdempotencyCleanupBatchSize 300, got %d", cfg.IdempotencyCleanupBatchSize)
 	}
 }
 

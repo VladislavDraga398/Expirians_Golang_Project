@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -407,7 +406,7 @@ func TestRPCHelpersAndRunScenario(t *testing.T) {
 			return &omsv1.CancelOrderResponse{OrderId: req.GetOrderId(), Status: omsv1.OrderStatus_ORDER_STATUS_CANCELED}, nil
 		},
 	}
-	if err := runScenario(scenarioClient, runCfg, 1, "run-1", rand.New(rand.NewSource(1)), c); err != nil {
+	if err := runScenario(scenarioClient, runCfg, 1, "run-1", c); err != nil {
 		t.Fatalf("runScenario failed: %v", err)
 	}
 
@@ -416,7 +415,7 @@ func TestRPCHelpersAndRunScenario(t *testing.T) {
 			return nil, status.Error(codes.Unavailable, "create unavailable")
 		},
 	}
-	if err := runScenario(failingClient, runCfg, 2, "run-2", rand.New(rand.NewSource(1)), c); status.Code(err) != codes.Unavailable {
+	if err := runScenario(failingClient, runCfg, 2, "run-2", c); status.Code(err) != codes.Unavailable {
 		t.Fatalf("expected Unavailable error, got %v", err)
 	}
 
@@ -425,7 +424,7 @@ func TestRPCHelpersAndRunScenario(t *testing.T) {
 			return &omsv1.CreateOrderResponse{Order: &omsv1.Order{}}, nil
 		},
 	}
-	if err := runScenario(emptyIDClient, runCfg, 3, "run-3", rand.New(rand.NewSource(1)), c); err == nil || !strings.Contains(err.Error(), "empty order id") {
+	if err := runScenario(emptyIDClient, runCfg, 3, "run-3", c); err == nil || !strings.Contains(err.Error(), "empty order id") {
 		t.Fatalf("expected empty id error, got %v", err)
 	}
 }

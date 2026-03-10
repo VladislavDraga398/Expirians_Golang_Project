@@ -1,0 +1,33 @@
+package domain
+
+import "time"
+
+// CourierRepository описывает хранилище курьеров и их операционных атрибутов.
+type CourierRepository interface {
+	// Create сохраняет нового курьера.
+	Create(courier Courier) error
+	// Get возвращает курьера по ID.
+	Get(id string) (Courier, error)
+	// GetByPhone возвращает курьера по уникальному номеру телефона.
+	GetByPhone(phone string) (Courier, error)
+	// Save обновляет профиль существующего курьера.
+	Save(courier Courier) error
+	// ListByZone возвращает курьеров, работающих в указанной зоне.
+	ListByZone(zoneID string, limit int) ([]Courier, error)
+	// ReplaceZones перезаписывает список зон курьера.
+	ReplaceZones(courierID string, zones []CourierZone) error
+	// ListZones возвращает все зоны, назначенные курьеру.
+	ListZones(courierID string) ([]CourierZone, error)
+	// CreateSlot сохраняет рабочий слот курьера.
+	CreateSlot(slot CourierSlot) error
+	// ListSlots возвращает слоты курьера за указанный интервал.
+	ListSlots(courierID string, from, to time.Time) ([]CourierSlot, error)
+	// GetVehicleCapability возвращает capability-профиль транспорта.
+	GetVehicleCapability(vehicleType VehicleType) (CourierVehicleCapability, error)
+	// ListVehicleCapabilities возвращает capability-профили по всем типам транспорта.
+	ListVehicleCapabilities() ([]CourierVehicleCapability, error)
+	// SubmitRating сохраняет оценку доставки по курьеру.
+	SubmitRating(rating CourierRating) error
+	// GetRatingSummary возвращает агрегированную сводку рейтинга по курьеру.
+	GetRatingSummary(courierID string) (CourierRatingSummary, error)
+}

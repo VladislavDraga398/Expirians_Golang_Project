@@ -10,7 +10,11 @@ import (
 )
 
 const (
-	defaultConnTimeout = 5 * time.Second
+	defaultConnTimeout     = 5 * time.Second
+	defaultMaxOpenConns    = 25
+	defaultMaxIdleConns    = 25
+	defaultConnMaxLifetime = 30 * time.Minute
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 // Store оборачивает SQL-подключение к PostgreSQL.
@@ -24,6 +28,10 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres connection: %w", err)
 	}
+	db.SetMaxOpenConns(defaultMaxOpenConns)
+	db.SetMaxIdleConns(defaultMaxIdleConns)
+	db.SetConnMaxLifetime(defaultConnMaxLifetime)
+	db.SetConnMaxIdleTime(defaultConnMaxIdleTime)
 
 	pingCtx, cancel := context.WithTimeout(ctx, defaultConnTimeout)
 	defer cancel()
