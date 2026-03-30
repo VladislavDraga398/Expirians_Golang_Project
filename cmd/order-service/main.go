@@ -32,6 +32,14 @@ const (
 	envOutboxMaxPending            = "OMS_OUTBOX_MAX_PENDING"
 	envIdempotencyCleanupInterval  = "OMS_IDEMPOTENCY_CLEANUP_INTERVAL"
 	envIdempotencyCleanupBatchSize = "OMS_IDEMPOTENCY_CLEANUP_BATCH_SIZE"
+	envDynamicPricingEnabled       = "OMS_DYNAMIC_PRICING_ENABLED"
+	envDynamicPricingBaseFeeMinor  = "OMS_DYNAMIC_PRICING_BASE_FEE_MINOR"
+	envDynamicPricingWeather       = "OMS_DYNAMIC_PRICING_WEATHER_SEVERITY"
+	envDynamicPricingTraffic       = "OMS_DYNAMIC_PRICING_TRAFFIC_SEVERITY"
+	envDynamicPricingCourierLoad   = "OMS_DYNAMIC_PRICING_COURIER_LOAD"
+	envDynamicPricingWeatherMaxBps = "OMS_DYNAMIC_PRICING_WEATHER_MAX_BPS"
+	envDynamicPricingTrafficMaxBps = "OMS_DYNAMIC_PRICING_TRAFFIC_MAX_BPS"
+	envDynamicPricingLoadMaxBps    = "OMS_DYNAMIC_PRICING_LOAD_MAX_BPS"
 )
 
 type configWarning struct {
@@ -172,6 +180,78 @@ func readConfigFromEnv(lookup envLookup) (app.Config, []configWarning) {
 		}
 	}
 
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingEnabled); ok {
+		value, err := parseBool(raw)
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingEnabled, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingEnabled = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingBaseFeeMinor); ok {
+		value, err := parseInt(raw, func(v int) bool { return v >= 0 }, "must be >= 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingBaseFeeMinor, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingBaseFeeMinor = int64(value)
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingWeather); ok {
+		value, err := parseFloat(raw, func(v float64) bool { return v >= 0 && v <= 1 }, "must be within [0,1]")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingWeather, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingDefaultWeatherSeverity = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingTraffic); ok {
+		value, err := parseFloat(raw, func(v float64) bool { return v >= 0 && v <= 1 }, "must be within [0,1]")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingTraffic, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingDefaultTrafficSeverity = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingCourierLoad); ok {
+		value, err := parseFloat(raw, func(v float64) bool { return v >= 0 && v <= 1 }, "must be within [0,1]")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingCourierLoad, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingDefaultCourierLoad = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingWeatherMaxBps); ok {
+		value, err := parseInt(raw, func(v int) bool { return v >= 0 }, "must be >= 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingWeatherMaxBps, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingWeatherMaxBps = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingTrafficMaxBps); ok {
+		value, err := parseInt(raw, func(v int) bool { return v >= 0 }, "must be >= 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingTrafficMaxBps, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingTrafficMaxBps = value
+		}
+	}
+
+	if raw, ok := lookupEnvTrimmed(lookup, envDynamicPricingLoadMaxBps); ok {
+		value, err := parseInt(raw, func(v int) bool { return v >= 0 }, "must be >= 0")
+		if err != nil {
+			warnings = append(warnings, configWarning{env: envDynamicPricingLoadMaxBps, value: raw, err: err})
+		} else {
+			cfg.DynamicPricingLoadMaxBps = value
+		}
+	}
+
 	return cfg, warnings
 }
 
@@ -222,6 +302,17 @@ func parseDuration(value string, validate func(time.Duration) bool, constraints 
 	return duration, nil
 }
 
+func parseFloat(value string, validate func(float64) bool, constraints string) (float64, error) {
+	number, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, err
+	}
+	if !validate(number) {
+		return 0, fmt.Errorf("invalid float value: %s", constraints)
+	}
+	return number, nil
+}
+
 func main() {
 	setupLogger()
 	cfg := readConfig()
@@ -242,6 +333,14 @@ func main() {
 		"outbox_max_pending":             cfg.OutboxMaxPending,
 		"idempotency_cleanup_interval":   cfg.IdempotencyCleanupInterval.String(),
 		"idempotency_cleanup_batch_size": cfg.IdempotencyCleanupBatchSize,
+		"dynamic_pricing_enabled":        cfg.DynamicPricingEnabled,
+		"dynamic_pricing_base_fee_minor": cfg.DynamicPricingBaseFeeMinor,
+		"dynamic_pricing_weather":        cfg.DynamicPricingDefaultWeatherSeverity,
+		"dynamic_pricing_traffic":        cfg.DynamicPricingDefaultTrafficSeverity,
+		"dynamic_pricing_courier_load":   cfg.DynamicPricingDefaultCourierLoad,
+		"dynamic_pricing_weather_bps":    cfg.DynamicPricingWeatherMaxBps,
+		"dynamic_pricing_traffic_bps":    cfg.DynamicPricingTrafficMaxBps,
+		"dynamic_pricing_load_bps":       cfg.DynamicPricingLoadMaxBps,
 		"build":                          version.String(),
 	}).Info("запускаем OrderService")
 

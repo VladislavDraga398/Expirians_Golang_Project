@@ -9,9 +9,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
+	"github.com/vladislavdragonenkov/oms/internal/service/pricing"
 	omsv1 "github.com/vladislavdragonenkov/oms/proto/oms/v1"
 )
 
@@ -201,6 +203,66 @@ func TestCreateOrderInternal_CreateErrorMapping(t *testing.T) {
 			}
 			mustStatusCode(t, err, tt.code)
 		})
+	}
+}
+
+func TestCreateOrderInternal_AppliesDynamicPricing(t *testing.T) {
+	var created domain.Order
+	service := newInternalTestService(&stubOrderRepository{
+		createFn: func(order domain.Order) error {
+			created = order
+			return nil
+		},
+	})
+	service.SetDeliveryPricingCalculator(pricing.NewCalculator(pricing.Config{
+		Enabled:      true,
+		BaseFeeMinor: 100,
+		// Для bike учитываем weather + load.
+		WeatherMaxBps: 2000,
+		TrafficMaxBps: 3000,
+		LoadMaxBps:    1000,
+	}))
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs(
+		"x-delivery-vehicle-type", "bike",
+		"x-weather-severity", "0.5",
+		"x-courier-load", "0.5",
+	))
+	resp, err := service.createOrderInternal(ctx, validCreateRequest())
+	if err != nil {
+		t.Fatalf("createOrderInternal returned error: %v", err)
+	}
+
+	// Сумма items=200, delivery fee=100*(1+0.1+0.05)=115.
+	if created.DeliveryFeeMinor != 115 {
+		t.Fatalf("expected created delivery fee 115, got %d", created.DeliveryFeeMinor)
+	}
+	if created.AmountMinor != 315 {
+		t.Fatalf("expected created amount 315, got %d", created.AmountMinor)
+	}
+	if resp.GetOrder().GetAmount().GetAmountMinor() != 315 {
+		t.Fatalf("expected response amount 315, got %d", resp.GetOrder().GetAmount().GetAmountMinor())
+	}
+}
+
+func TestCreateOrderInternal_DynamicPricingDisabledByDefault(t *testing.T) {
+	var created domain.Order
+	service := newInternalTestService(&stubOrderRepository{
+		createFn: func(order domain.Order) error {
+			created = order
+			return nil
+		},
+	})
+
+	resp, err := service.createOrderInternal(context.Background(), validCreateRequest())
+	if err != nil {
+		t.Fatalf("createOrderInternal returned error: %v", err)
+	}
+	if created.DeliveryFeeMinor != 0 {
+		t.Fatalf("expected delivery fee 0 by default, got %d", created.DeliveryFeeMinor)
+	}
+	if resp.GetOrder().GetAmount().GetAmountMinor() != 200 {
+		t.Fatalf("expected amount 200 without dynamic pricing, got %d", resp.GetOrder().GetAmount().GetAmountMinor())
 	}
 }
 

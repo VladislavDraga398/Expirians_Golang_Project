@@ -42,11 +42,11 @@ func (r *orderRepository) Create(order domain.Order) error {
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO orders (
-			id, customer_id, status, currency, amount_minor, version, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			id, customer_id, status, currency, amount_minor, delivery_fee_minor, version, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`,
 		order.ID, order.CustomerID, string(order.Status), order.Currency,
-		order.AmountMinor, order.Version, order.CreatedAt, order.UpdatedAt,
+		order.AmountMinor, order.DeliveryFeeMinor, order.Version, order.CreatedAt, order.UpdatedAt,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -82,12 +82,12 @@ func (r *orderRepository) Get(id string) (domain.Order, error) {
 	var status string
 
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, customer_id, status, currency, amount_minor, version, created_at, updated_at
+		SELECT id, customer_id, status, currency, amount_minor, delivery_fee_minor, version, created_at, updated_at
 		FROM orders
 		WHERE id = $1
 	`, id).Scan(
 		&order.ID, &order.CustomerID, &status, &order.Currency,
-		&order.AmountMinor, &order.Version, &order.CreatedAt, &order.UpdatedAt,
+		&order.AmountMinor, &order.DeliveryFeeMinor, &order.Version, &order.CreatedAt, &order.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -111,7 +111,7 @@ func (r *orderRepository) ListByCustomer(customerID string, limit int) ([]domain
 	defer cancel()
 
 	query := `
-		SELECT id, customer_id, status, currency, amount_minor, version, created_at, updated_at
+		SELECT id, customer_id, status, currency, amount_minor, delivery_fee_minor, version, created_at, updated_at
 		FROM orders
 		WHERE customer_id = $1
 		ORDER BY created_at DESC, id DESC
@@ -138,7 +138,7 @@ func (r *orderRepository) ListByCustomer(customerID string, limit int) ([]domain
 		var status string
 		if err := rows.Scan(
 			&order.ID, &order.CustomerID, &status, &order.Currency,
-			&order.AmountMinor, &order.Version, &order.CreatedAt, &order.UpdatedAt,
+			&order.AmountMinor, &order.DeliveryFeeMinor, &order.Version, &order.CreatedAt, &order.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan order row: %w", err)
 		}
@@ -179,15 +179,17 @@ func (r *orderRepository) Save(order domain.Order) error {
 		    status = $2,
 		    currency = $3,
 		    amount_minor = $4,
+		    delivery_fee_minor = $5,
 		    version = version + 1,
-		    updated_at = $5
-		WHERE id = $6
-		  AND version = $7
+		    updated_at = $6
+		WHERE id = $7
+		  AND version = $8
 	`,
 		order.CustomerID,
 		string(order.Status),
 		order.Currency,
 		order.AmountMinor,
+		order.DeliveryFeeMinor,
 		order.UpdatedAt,
 		order.ID,
 		order.Version,

@@ -41,10 +41,12 @@ type Order struct {
 	Status      OrderStatus
 	Currency    string
 	AmountMinor int64
-	Items       []OrderItem
-	Version     int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// DeliveryFeeMinor — сервисный delivery fee в минимальных денежных единицах.
+	DeliveryFeeMinor int64
+	Items            []OrderItem
+	Version          int64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // ValidateInvariants проверяет базовые инварианты заказа и возвращает список замечаний.
@@ -63,6 +65,9 @@ func (o *Order) ValidateInvariants() []error {
 	if o.AmountMinor < 0 {
 		errs = append(errs, ErrAmountNegative)
 	}
+	if o.DeliveryFeeMinor < 0 {
+		errs = append(errs, ErrAmountNegative)
+	}
 
 	// Сверяем сумму заказа с суммой позиций: qty * price.
 	var calc int64
@@ -75,6 +80,7 @@ func (o *Order) ValidateInvariants() []error {
 		}
 		calc += int64(item.Qty) * item.PriceMinor
 	}
+	calc += o.DeliveryFeeMinor
 	if calc != o.AmountMinor {
 		errs = append(errs, ErrAmountMismatch)
 	}

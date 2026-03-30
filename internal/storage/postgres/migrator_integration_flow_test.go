@@ -12,84 +12,77 @@ func TestMigrator_PostgresLifecycle(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	migrations, err := loadMigrationsFromFS(migrationsFS)
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	if len(migrations) < 2 {
+		t.Fatalf("expected at least 2 migrations, got %d", len(migrations))
+	}
+
+	assertStatus := func(stage string, wantVersion int64, wantCount int) {
+		t.Helper()
+
+		version, count, statusErr := store.MigrationStatus(ctx)
+		if statusErr != nil {
+			t.Fatalf("migration status %s: %v", stage, statusErr)
+		}
+		if version != wantVersion || count != wantCount {
+			t.Fatalf(
+				"unexpected status %s: version=%d count=%d, want version=%d count=%d",
+				stage,
+				version,
+				count,
+				wantVersion,
+				wantCount,
+			)
+		}
+	}
+
 	// Reset migration state first.
 	if err := store.MigrateDown(ctx, 100); err != nil {
 		t.Fatalf("migrate down reset: %v", err)
 	}
-
-	version, count, err := store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after reset: %v", err)
-	}
-	if version != 0 || count != 0 {
-		t.Fatalf("unexpected status after reset: version=%d count=%d", version, count)
-	}
+	assertStatus("after reset", 0, 0)
 
 	if err := store.MigrateUp(ctx, 0); err != nil {
 		t.Fatalf("migrate up all: %v", err)
 	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after up all: %v", err)
-	}
-	if version != 4 || count != 4 {
-		t.Fatalf("unexpected status after up all: version=%d count=%d", version, count)
-	}
+	wantCount := len(migrations)
+	wantVersion := migrations[wantCount-1].Version
+	assertStatus("after up all", wantVersion, wantCount)
 
 	// Idempotent up should keep state unchanged.
 	if err := store.MigrateUp(ctx, 0); err != nil {
 		t.Fatalf("idempotent migrate up: %v", err)
 	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after idempotent up: %v", err)
-	}
-	if version != 4 || count != 4 {
-		t.Fatalf("unexpected status after idempotent up: version=%d count=%d", version, count)
-	}
+	assertStatus("after idempotent up", wantVersion, wantCount)
 
 	if err := store.MigrateDown(ctx, 1); err != nil {
 		t.Fatalf("migrate down 1: %v", err)
 	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after down 1: %v", err)
-	}
-	if version != 3 || count != 3 {
-		t.Fatalf("unexpected status after down 1: version=%d count=%d", version, count)
-	}
+	wantCount--
+	wantVersion = migrations[wantCount-1].Version
+	assertStatus("after down 1", wantVersion, wantCount)
 
 	if err := store.MigrateDown(ctx, 0); err != nil {
 		t.Fatalf("migrate down default step: %v", err)
 	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after down default: %v", err)
-	}
-	if version != 2 || count != 2 {
-		t.Fatalf("unexpected status after down default: version=%d count=%d", version, count)
-	}
+	wantCount--
+	wantVersion = migrations[wantCount-1].Version
+	assertStatus("after down default", wantVersion, wantCount)
 
-	if err := store.MigrateDown(ctx, 1); err != nil {
-		t.Fatalf("migrate down next step: %v", err)
-	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after down next step: %v", err)
-	}
-	if version != 1 || count != 1 {
-		t.Fatalf("unexpected status after down next step: version=%d count=%d", version, count)
-	}
-
-	if err := store.MigrateDown(ctx, 1); err != nil {
-		t.Fatalf("migrate down final step: %v", err)
-	}
-	version, count, err = store.MigrationStatus(ctx)
-	if err != nil {
-		t.Fatalf("migration status after down to zero: %v", err)
-	}
-	if version != 0 || count != 0 {
-		t.Fatalf("unexpected status after down to zero: version=%d count=%d", version, count)
+	for wantCount > 0 {
+		if err := store.MigrateDown(ctx, 1); err != nil {
+			t.Fatalf("migrate down to zero: %v", err)
+		}
+		wantCount--
+		if wantCount == 0 {
+			wantVersion = 0
+		} else {
+			wantVersion = migrations[wantCount-1].Version
+		}
+		assertStatus("drain down", wantVersion, wantCount)
 	}
 
 	// No-op down on empty state.
