@@ -42,6 +42,9 @@ func (r *orderRepositoryInMemory) Get(id string) (domain.Order, error) {
 	if !ok {
 		return domain.Order{}, domain.ErrOrderNotFound
 	}
+	if order.DeliveryFeeMinor == 0 {
+		order.DeliveryFeeMinor = inferOrderDeliveryFee(order)
+	}
 	return order, nil
 }
 
@@ -54,6 +57,9 @@ func (r *orderRepositoryInMemory) ListByCustomer(customerID string, limit int) (
 	for _, order := range r.items {
 		if order.CustomerID != customerID {
 			continue
+		}
+		if order.DeliveryFeeMinor == 0 {
+			order.DeliveryFeeMinor = inferOrderDeliveryFee(order)
 		}
 		result = append(result, order)
 	}
@@ -91,3 +97,14 @@ func (r *orderRepositoryInMemory) Save(order domain.Order) error {
 }
 
 var _ domain.OrderRepository = (*orderRepositoryInMemory)(nil)
+
+func inferOrderDeliveryFee(order domain.Order) int64 {
+	diff := order.AmountMinor
+	for _, item := range order.Items {
+		diff -= int64(item.Qty) * item.PriceMinor
+	}
+	if diff < 0 {
+		return 0
+	}
+	return diff
+}

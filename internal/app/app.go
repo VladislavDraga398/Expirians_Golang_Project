@@ -26,6 +26,7 @@ import (
 	"github.com/vladislavdragonenkov/oms/internal/service/inventory"
 	outboxsvc "github.com/vladislavdragonenkov/oms/internal/service/outbox"
 	"github.com/vladislavdragonenkov/oms/internal/service/payment"
+	"github.com/vladislavdragonenkov/oms/internal/service/pricing"
 	"github.com/vladislavdragonenkov/oms/internal/service/saga"
 	"github.com/vladislavdragonenkov/oms/internal/storage/memory"
 	"github.com/vladislavdragonenkov/oms/internal/storage/postgres"
@@ -58,23 +59,40 @@ type Config struct {
 	OutboxMaxPending            int
 	IdempotencyCleanupInterval  time.Duration
 	IdempotencyCleanupBatchSize int
+
+	DynamicPricingEnabled                bool
+	DynamicPricingBaseFeeMinor           int64
+	DynamicPricingDefaultWeatherSeverity float64
+	DynamicPricingDefaultTrafficSeverity float64
+	DynamicPricingDefaultCourierLoad     float64
+	DynamicPricingWeatherMaxBps          int
+	DynamicPricingTrafficMaxBps          int
+	DynamicPricingLoadMaxBps             int
 }
 
 // DefaultConfig возвращает базовые адреса для gRPC и HTTP-метрик.
 func DefaultConfig() Config {
 	return Config{
-		GRPCAddr:                    ":50051",
-		MetricsAddr:                 ":9090",
-		StorageDriver:               StorageDriverMemory,
-		PostgresAutoMigrate:         true,
-		AllowMockIntegrations:       false,
-		OutboxPollInterval:          time.Second,
-		OutboxBatchSize:             100,
-		OutboxMaxAttempts:           3,
-		OutboxRetryDelay:            50 * time.Millisecond,
-		OutboxMaxPending:            10000,
-		IdempotencyCleanupInterval:  10 * time.Minute,
-		IdempotencyCleanupBatchSize: 500,
+		GRPCAddr:                             ":50051",
+		MetricsAddr:                          ":9090",
+		StorageDriver:                        StorageDriverMemory,
+		PostgresAutoMigrate:                  true,
+		AllowMockIntegrations:                false,
+		OutboxPollInterval:                   time.Second,
+		OutboxBatchSize:                      100,
+		OutboxMaxAttempts:                    3,
+		OutboxRetryDelay:                     50 * time.Millisecond,
+		OutboxMaxPending:                     10000,
+		IdempotencyCleanupInterval:           10 * time.Minute,
+		IdempotencyCleanupBatchSize:          500,
+		DynamicPricingEnabled:                false,
+		DynamicPricingBaseFeeMinor:           0,
+		DynamicPricingDefaultWeatherSeverity: 0,
+		DynamicPricingDefaultTrafficSeverity: 0,
+		DynamicPricingDefaultCourierLoad:     0,
+		DynamicPricingWeatherMaxBps:          2500,
+		DynamicPricingTrafficMaxBps:          3000,
+		DynamicPricingLoadMaxBps:             2000,
 	}
 }
 
@@ -178,6 +196,16 @@ func Run(ctx context.Context, cfg Config) error {
 
 	serviceLogger := logger.WithField("layer", "grpc")
 	orderService := grpcsvc.NewOrderService(deps.Repo, deps.TimelineRepo, runtimeDeps.idempotencyRepo, sagaOrchestrator, serviceLogger)
+	orderService.SetDeliveryPricingCalculator(pricing.NewCalculator(pricing.Config{
+		Enabled:                cfg.DynamicPricingEnabled,
+		BaseFeeMinor:           cfg.DynamicPricingBaseFeeMinor,
+		DefaultWeatherSeverity: cfg.DynamicPricingDefaultWeatherSeverity,
+		DefaultTrafficSeverity: cfg.DynamicPricingDefaultTrafficSeverity,
+		DefaultCourierLoad:     cfg.DynamicPricingDefaultCourierLoad,
+		WeatherMaxBps:          cfg.DynamicPricingWeatherMaxBps,
+		TrafficMaxBps:          cfg.DynamicPricingTrafficMaxBps,
+		LoadMaxBps:             cfg.DynamicPricingLoadMaxBps,
+	}))
 	courierService := grpcsvc.NewCourierService(deps.CourierRepo, serviceLogger.WithField("service", "courier"))
 	grpcMetrics := promgrpc.DefaultServerMetrics
 	grpcServer := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcMetrics.UnaryServerInterceptor()))

@@ -34,6 +34,14 @@ func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 		envOutboxMaxPending:            "0",
 		envIdempotencyCleanupInterval:  "30m",
 		envIdempotencyCleanupBatchSize: "123",
+		envDynamicPricingEnabled:       "true",
+		envDynamicPricingBaseFeeMinor:  "199",
+		envDynamicPricingWeather:       "0.7",
+		envDynamicPricingTraffic:       "0.4",
+		envDynamicPricingCourierLoad:   "0.85",
+		envDynamicPricingWeatherMaxBps: "1200",
+		envDynamicPricingTrafficMaxBps: "1800",
+		envDynamicPricingLoadMaxBps:    "900",
 	}))
 
 	if len(warnings) != 0 {
@@ -79,6 +87,30 @@ func TestReadConfigFromEnv_ValidOverrides(t *testing.T) {
 	if cfg.IdempotencyCleanupBatchSize != 123 {
 		t.Fatalf("unexpected idempotency cleanup batch size: %d", cfg.IdempotencyCleanupBatchSize)
 	}
+	if !cfg.DynamicPricingEnabled {
+		t.Fatal("expected DynamicPricingEnabled=true")
+	}
+	if cfg.DynamicPricingBaseFeeMinor != 199 {
+		t.Fatalf("unexpected dynamic pricing base fee: %d", cfg.DynamicPricingBaseFeeMinor)
+	}
+	if cfg.DynamicPricingDefaultWeatherSeverity != 0.7 {
+		t.Fatalf("unexpected dynamic pricing weather severity: %f", cfg.DynamicPricingDefaultWeatherSeverity)
+	}
+	if cfg.DynamicPricingDefaultTrafficSeverity != 0.4 {
+		t.Fatalf("unexpected dynamic pricing traffic severity: %f", cfg.DynamicPricingDefaultTrafficSeverity)
+	}
+	if cfg.DynamicPricingDefaultCourierLoad != 0.85 {
+		t.Fatalf("unexpected dynamic pricing courier load: %f", cfg.DynamicPricingDefaultCourierLoad)
+	}
+	if cfg.DynamicPricingWeatherMaxBps != 1200 {
+		t.Fatalf("unexpected dynamic pricing weather bps: %d", cfg.DynamicPricingWeatherMaxBps)
+	}
+	if cfg.DynamicPricingTrafficMaxBps != 1800 {
+		t.Fatalf("unexpected dynamic pricing traffic bps: %d", cfg.DynamicPricingTrafficMaxBps)
+	}
+	if cfg.DynamicPricingLoadMaxBps != 900 {
+		t.Fatalf("unexpected dynamic pricing load bps: %d", cfg.DynamicPricingLoadMaxBps)
+	}
 }
 
 func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
@@ -94,10 +126,18 @@ func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
 		envOutboxMaxPending:            "-2",
 		envIdempotencyCleanupInterval:  "invalid",
 		envIdempotencyCleanupBatchSize: "0",
+		envDynamicPricingEnabled:       "not-bool",
+		envDynamicPricingBaseFeeMinor:  "-1",
+		envDynamicPricingWeather:       "1.5",
+		envDynamicPricingTraffic:       "-0.1",
+		envDynamicPricingCourierLoad:   "oops",
+		envDynamicPricingWeatherMaxBps: "-10",
+		envDynamicPricingTrafficMaxBps: "-20",
+		envDynamicPricingLoadMaxBps:    "-30",
 	}))
 
-	if len(warnings) != 9 {
-		t.Fatalf("expected 9 warnings, got %d", len(warnings))
+	if len(warnings) != 17 {
+		t.Fatalf("expected 17 warnings, got %d", len(warnings))
 	}
 
 	if cfg.PostgresAutoMigrate != defaultCfg.PostgresAutoMigrate {
@@ -126,6 +166,30 @@ func TestReadConfigFromEnv_InvalidValuesFallbackToDefaults(t *testing.T) {
 	}
 	if cfg.IdempotencyCleanupBatchSize != defaultCfg.IdempotencyCleanupBatchSize {
 		t.Fatal("expected IdempotencyCleanupBatchSize to keep default on invalid value")
+	}
+	if cfg.DynamicPricingEnabled != defaultCfg.DynamicPricingEnabled {
+		t.Fatal("expected DynamicPricingEnabled to keep default on invalid value")
+	}
+	if cfg.DynamicPricingBaseFeeMinor != defaultCfg.DynamicPricingBaseFeeMinor {
+		t.Fatal("expected DynamicPricingBaseFeeMinor to keep default on invalid value")
+	}
+	if cfg.DynamicPricingDefaultWeatherSeverity != defaultCfg.DynamicPricingDefaultWeatherSeverity {
+		t.Fatal("expected DynamicPricingDefaultWeatherSeverity to keep default on invalid value")
+	}
+	if cfg.DynamicPricingDefaultTrafficSeverity != defaultCfg.DynamicPricingDefaultTrafficSeverity {
+		t.Fatal("expected DynamicPricingDefaultTrafficSeverity to keep default on invalid value")
+	}
+	if cfg.DynamicPricingDefaultCourierLoad != defaultCfg.DynamicPricingDefaultCourierLoad {
+		t.Fatal("expected DynamicPricingDefaultCourierLoad to keep default on invalid value")
+	}
+	if cfg.DynamicPricingWeatherMaxBps != defaultCfg.DynamicPricingWeatherMaxBps {
+		t.Fatal("expected DynamicPricingWeatherMaxBps to keep default on invalid value")
+	}
+	if cfg.DynamicPricingTrafficMaxBps != defaultCfg.DynamicPricingTrafficMaxBps {
+		t.Fatal("expected DynamicPricingTrafficMaxBps to keep default on invalid value")
+	}
+	if cfg.DynamicPricingLoadMaxBps != defaultCfg.DynamicPricingLoadMaxBps {
+		t.Fatal("expected DynamicPricingLoadMaxBps to keep default on invalid value")
 	}
 }
 
@@ -175,6 +239,20 @@ func TestParseDuration(t *testing.T) {
 	}
 
 	if _, err := parseDuration("-1ms", func(v time.Duration) bool { return v >= 0 }, "must be >= 0"); err == nil {
+		t.Fatal("expected validation error")
+	}
+}
+
+func TestParseFloat(t *testing.T) {
+	value, err := parseFloat(" 0.75 ", func(v float64) bool { return v >= 0 && v <= 1 }, "must be within [0,1]")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if value != 0.75 {
+		t.Fatalf("unexpected value: %f", value)
+	}
+
+	if _, err := parseFloat("2", func(v float64) bool { return v >= 0 && v <= 1 }, "must be within [0,1]"); err == nil {
 		t.Fatal("expected validation error")
 	}
 }

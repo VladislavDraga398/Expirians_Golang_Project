@@ -20,6 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/vladislavdragonenkov/oms/internal/domain"
+	"github.com/vladislavdragonenkov/oms/internal/service/pricing"
 	"github.com/vladislavdragonenkov/oms/internal/service/saga"
 	omsv1 "github.com/vladislavdragonenkov/oms/proto/oms/v1"
 )
@@ -39,6 +40,8 @@ type OrderService struct {
 	sagaWG     sync.WaitGroup
 
 	idempotencyWarnOnce sync.Once
+
+	deliveryPricing *pricing.Calculator
 }
 
 const (
@@ -74,6 +77,11 @@ func NewOrderService(
 	}
 }
 
+// SetDeliveryPricingCalculator подключает расчёт delivery fee для CreateOrder.
+func (s *OrderService) SetDeliveryPricingCalculator(calculator *pricing.Calculator) {
+	s.deliveryPricing = calculator
+}
+
 // CreateOrder создаёт заказ и запускает обработку.
 func (s *OrderService) CreateOrder(ctx context.Context, req *omsv1.CreateOrderRequest) (*omsv1.CreateOrderResponse, error) {
 	if req == nil {
@@ -92,7 +100,7 @@ func (s *OrderService) CreateOrder(ctx context.Context, req *omsv1.CreateOrderRe
 	)
 }
 
-func (s *OrderService) createOrderInternal(_ context.Context, req *omsv1.CreateOrderRequest) (*omsv1.CreateOrderResponse, error) {
+func (s *OrderService) createOrderInternal(ctx context.Context, req *omsv1.CreateOrderRequest) (*omsv1.CreateOrderResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
@@ -136,16 +144,37 @@ func (s *OrderService) createOrderInternal(_ context.Context, req *omsv1.CreateO
 		amountSum += int64(item.Qty) * item.Price.AmountMinor
 	}
 
+	var deliveryFeeMinor int64
+	if s.deliveryPricing != nil {
+		pricingResult := s.deliveryPricing.Calculate(ctx)
+		deliveryFeeMinor = pricingResult.DeliveryFeeMinor
+		if pricingResult.Applied {
+			s.logger.WithFields(log.Fields{
+				"base_fee_minor":       pricingResult.BaseFeeMinor,
+				"delivery_fee_minor":   pricingResult.DeliveryFeeMinor,
+				"vehicle_type":         pricingResult.VehicleType,
+				"weather_severity":     pricingResult.WeatherSeverity,
+				"traffic_severity":     pricingResult.TrafficSeverity,
+				"courier_load":         pricingResult.CourierLoad,
+				"weather_bps":          pricingResult.WeatherBps,
+				"traffic_bps":          pricingResult.TrafficBps,
+				"load_bps":             pricingResult.LoadBps,
+				"total_multiplier_bps": pricingResult.TotalBps,
+			}).Debug("dynamic delivery pricing applied")
+		}
+	}
+
 	order := domain.Order{
-		ID:          uuid.NewString(),
-		CustomerID:  req.CustomerId,
-		Status:      domain.OrderStatusPending,
-		Currency:    req.Currency,
-		AmountMinor: amountSum,
-		Items:       items,
-		Version:     0,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:               uuid.NewString(),
+		CustomerID:       req.CustomerId,
+		Status:           domain.OrderStatusPending,
+		Currency:         req.Currency,
+		AmountMinor:      amountSum + deliveryFeeMinor,
+		DeliveryFeeMinor: deliveryFeeMinor,
+		Items:            items,
+		Version:          0,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 
 	if errs := order.ValidateInvariants(); len(errs) > 0 {

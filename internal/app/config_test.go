@@ -44,22 +44,45 @@ func TestDefaultConfig_Values(t *testing.T) {
 	if cfg.IdempotencyCleanupBatchSize <= 0 {
 		t.Error("expected IdempotencyCleanupBatchSize to be > 0")
 	}
+	if cfg.DynamicPricingEnabled {
+		t.Error("expected DynamicPricingEnabled to be false by default")
+	}
+	if cfg.DynamicPricingBaseFeeMinor != 0 {
+		t.Errorf("expected DynamicPricingBaseFeeMinor=0, got %d", cfg.DynamicPricingBaseFeeMinor)
+	}
+	if cfg.DynamicPricingWeatherMaxBps <= 0 {
+		t.Errorf("expected DynamicPricingWeatherMaxBps > 0, got %d", cfg.DynamicPricingWeatherMaxBps)
+	}
+	if cfg.DynamicPricingTrafficMaxBps <= 0 {
+		t.Errorf("expected DynamicPricingTrafficMaxBps > 0, got %d", cfg.DynamicPricingTrafficMaxBps)
+	}
+	if cfg.DynamicPricingLoadMaxBps <= 0 {
+		t.Errorf("expected DynamicPricingLoadMaxBps > 0, got %d", cfg.DynamicPricingLoadMaxBps)
+	}
 }
 
 func TestConfig_CustomValues(t *testing.T) {
 	cfg := Config{
-		GRPCAddr:                    ":8080",
-		MetricsAddr:                 ":9091",
-		StorageDriver:               StorageDriverPostgres,
-		PostgresDSN:                 "postgres://oms:oms@localhost:5432/oms?sslmode=disable",
-		PostgresAutoMigrate:         false,
-		OutboxPollInterval:          2 * time.Second,
-		OutboxBatchSize:             50,
-		OutboxMaxAttempts:           5,
-		OutboxRetryDelay:            time.Second,
-		OutboxMaxPending:            200,
-		IdempotencyCleanupInterval:  5 * time.Minute,
-		IdempotencyCleanupBatchSize: 300,
+		GRPCAddr:                             ":8080",
+		MetricsAddr:                          ":9091",
+		StorageDriver:                        StorageDriverPostgres,
+		PostgresDSN:                          "postgres://oms:oms@localhost:5432/oms?sslmode=disable",
+		PostgresAutoMigrate:                  false,
+		OutboxPollInterval:                   2 * time.Second,
+		OutboxBatchSize:                      50,
+		OutboxMaxAttempts:                    5,
+		OutboxRetryDelay:                     time.Second,
+		OutboxMaxPending:                     200,
+		IdempotencyCleanupInterval:           5 * time.Minute,
+		IdempotencyCleanupBatchSize:          300,
+		DynamicPricingEnabled:                true,
+		DynamicPricingBaseFeeMinor:           199,
+		DynamicPricingDefaultWeatherSeverity: 0.6,
+		DynamicPricingDefaultTrafficSeverity: 0.4,
+		DynamicPricingDefaultCourierLoad:     0.8,
+		DynamicPricingWeatherMaxBps:          1200,
+		DynamicPricingTrafficMaxBps:          1800,
+		DynamicPricingLoadMaxBps:             900,
 	}
 
 	if cfg.GRPCAddr != ":8080" {
@@ -86,6 +109,12 @@ func TestConfig_CustomValues(t *testing.T) {
 	}
 	if cfg.IdempotencyCleanupBatchSize != 300 {
 		t.Errorf("expected IdempotencyCleanupBatchSize 300, got %d", cfg.IdempotencyCleanupBatchSize)
+	}
+	if !cfg.DynamicPricingEnabled {
+		t.Error("expected DynamicPricingEnabled=true")
+	}
+	if cfg.DynamicPricingBaseFeeMinor != 199 {
+		t.Errorf("expected DynamicPricingBaseFeeMinor 199, got %d", cfg.DynamicPricingBaseFeeMinor)
 	}
 }
 

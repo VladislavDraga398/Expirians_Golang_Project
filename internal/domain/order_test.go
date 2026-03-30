@@ -79,6 +79,12 @@ func TestOrderValidateInvariants_Errors(t *testing.T) {
 				o.AmountMinor = 999
 			},
 		},
+		{
+			name: "negative delivery fee",
+			mut: func(o *domain.Order) {
+				o.DeliveryFeeMinor = -1
+			},
+		},
 	}
 
 	for _, tc := range cases {
